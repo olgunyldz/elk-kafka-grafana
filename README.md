@@ -2,6 +2,8 @@
 
 **Goal:** a running Kafka cluster and topics, used from the CLI.
 
+For background and the reasons behind each setting, read [docs/01-kafka-cluster.md](docs/01-kafka-cluster.md).
+
 ## What runs
 
 | Service      | What it does                                         | Address                                    |
