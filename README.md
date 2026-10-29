@@ -6,6 +6,52 @@ A log and metrics pipeline built one step at a time. Each step is a branch.
 |------|--------|------|
 | 01 | `step-01-kafka-init` | A running Kafka cluster and topics, used from the CLI |
 | 02 | `step-02-producer-consumer` | Spring Boot producer and consumer |
+| 03 | `step-03-protect-kafka-data` | No card or personal data readable in Kafka |
+
+# Step 03: Protect card and personal data in Kafka
+
+**Goal:** no card or personal data readable in Kafka.
+
+For the full design, read [docs/step-03-protect-kafka-data.md](docs/step-03-protect-kafka-data.md).
+
+A new library module, [springboot/log-masking](springboot/log-masking), protects every message before it leaves the producer:
+
+| Data | Examples | Sent to Kafka as |
+|------|----------|------------------|
+| Card security data | CVV, PIN, track data | **removed** |
+| Credentials | passwords, API keys, tokens, `Authorization: Bearer …` | **removed** |
+| Card data | `4111 1111 1111 1111` (Luhn + card network checked), expiry dates | **encrypted** `pan:v1:1111:…`, `exp:v1::…` (AES-256-GCM) |
+| Personal data | name, email, phone, address, birth date, national ID, IBAN | **encrypted** `email:v1:example.com:…`, `pii:v1::…` |
+
+Tokens keep a readable hint (last 4 card digits, email domain, …) so values can be told apart without the key.
+
+- The producer sends through `PciKafkaTemplate`. Responses include `sent` (the value as stored in Kafka), `removedValues` and `encryptedValues`, and a key containing sensitive data is rejected with `400`.
+- The consumer's groups (`pci.decrypt.consumer-groups`, `*` for all) get the values decrypted by `PciDecryptingRecordInterceptor`. Every other reader, such as `kafka-ui` or a console consumer, sees only tokens.
+- On the web page, use the **sample buttons** to send messages with card and personal data. The **Sent to Kafka** column shows what was removed and encrypted, and the value exactly as Kafka stores it.
+
+### The encryption key
+
+Both apps read `pci.data-encryption-key`. Compose sets it from `DATA_ENCRYPTION_KEY`, which defaults to a **public lab key** committed in this repo. Anyone can decrypt with that key, so use your own for anything real:
+
+```bash
+echo "DATA_ENCRYPTION_KEY=$(openssl rand -base64 32)" > .env   # .env is git-ignored
+docker compose up -d --build producer consumer
+```
+
+### Check it yourself
+
+```bash
+# What Kafka actually stores: tokens, no card numbers
+docker exec kafka-1 /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka-1:9092 \
+  --topic app-events --from-beginning --property print.headers=true --max-messages 5
+
+# What our consumer sees: decrypted
+docker compose logs consumer | grep PaymentAuthorized
+```
+
+> **Logs are not masked yet.** The apps log with plain `LoggerFactory` loggers, so the consumer's log output shows decrypted card and personal data. Step 06 adds log masking.
+
+---
 
 # Step 02: Spring Boot producer and consumer
 

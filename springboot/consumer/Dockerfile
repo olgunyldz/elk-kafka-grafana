@@ -6,12 +6,20 @@ FROM maven:3.9-eclipse-temurin-21 AS build
 WORKDIR /src
 # Maven needs every module's pom listed in the parent, even when building only one module
 COPY pom.xml .
+COPY log-masking/pom.xml log-masking/
 COPY producer/pom.xml producer/
 COPY consumer/pom.xml consumer/
-COPY consumer/src consumer/src
-# The cache mount keeps downloaded dependencies between builds
+
+# 1a. Build and install the log-masking library first, with its tests: the app depends on it.
+#     The cache mount keeps downloaded dependencies and the installed library between builds.
+COPY log-masking/src log-masking/src
 RUN --mount=type=cache,target=/root/.m2 \
-    mvn -B -q -pl consumer -am package -DskipTests \
+    mvn -B -q -pl log-masking -am install
+
+# 1b. Build the app against the installed library
+COPY consumer/src consumer/src
+RUN --mount=type=cache,target=/root/.m2 \
+    mvn -B -q -pl consumer package -DskipTests \
  && cp consumer/target/consumer-*.jar /application.jar
 
 # ---- 2. Split the jar into layers ----

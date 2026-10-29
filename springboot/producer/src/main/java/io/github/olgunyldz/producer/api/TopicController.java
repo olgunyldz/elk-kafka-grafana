@@ -7,9 +7,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-/** Lists the topics this producer can publish to. Used by the web page's topic dropdown. */
+/** Data for the web page: the topic dropdown and the sample buttons. */
 @RestController
-@RequestMapping("/api/topics")
+@RequestMapping("/api")
 public class TopicController {
 
     /**
@@ -21,16 +21,23 @@ public class TopicController {
     }
 
     private final TopicProperties topics;
+    private final SampleMessages samples;
 
-    public TopicController(TopicProperties topics) {
+    public TopicController(TopicProperties topics, SampleMessages samples) {
         this.topics = topics;
+        this.samples = samples;
     }
 
-    @GetMapping
-    public List<TopicInfo> list() {
+    @GetMapping("/topics")
+    public List<TopicInfo> topics() {
         return List.of(
                 new TopicInfo(topics.logs(), "log", "/api/logs"),
                 new TopicInfo(topics.events(), "event", "/api/events"),
                 new TopicInfo(topics.metrics(), "metric", "/api/metrics"));
+    }
+
+    @GetMapping("/samples")
+    public List<SampleMessages.Sample> samples() {
+        return samples.all();
     }
 }

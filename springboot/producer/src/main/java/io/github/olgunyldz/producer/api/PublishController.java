@@ -1,5 +1,6 @@
 package io.github.olgunyldz.producer.api;
 
+import io.github.olgunyldz.logmasking.pci.kafka.PciKafkaTemplate.PciSendResult;
 import io.github.olgunyldz.producer.model.AppEvent;
 import io.github.olgunyldz.producer.model.LogMessage;
 import io.github.olgunyldz.producer.model.MetricMessage;
@@ -9,13 +10,15 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import org.springframework.http.HttpStatus;
-import org.springframework.kafka.support.SendResult;
+import org.springframework.http.ProblemDetail;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -48,8 +51,18 @@ public class PublishController {
             Map<String, String> tags) {
     }
 
-    /** Where Kafka stored the record: returned once the brokers have acknowledged it. */
-    public record PublishResponse(String id, String topic, int partition, long offset) {
+    /**
+     * Where Kafka stored the record, returned once the brokers have acknowledged it: the value exactly
+     * as Kafka stores it ({@code sent}), and which parts were removed or encrypted on the way.
+     */
+    public record PublishResponse(String id, String topic, int partition, long offset, Object sent,
+                                  List<String> removedValues, List<String> encryptedValues) {
+    }
+
+    /** A sensitive Kafka key is rejected by PciKafkaTemplate: report it as a client error. */
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ProblemDetail rejected(IllegalArgumentException ex) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
     @PostMapping("/logs")
@@ -75,8 +88,9 @@ public class PublishController {
         return publisher.publish(metric).thenApply(result -> toResponse(metric.id(), result));
     }
 
-    private static PublishResponse toResponse(String id, SendResult<String, Object> result) {
-        var meta = result.getRecordMetadata();
-        return new PublishResponse(id, meta.topic(), meta.partition(), meta.offset());
+    private static PublishResponse toResponse(String id, PciSendResult result) {
+        var meta = result.sendResult().getRecordMetadata();
+        return new PublishResponse(id, meta.topic(), meta.partition(), meta.offset(), result.sentValue(),
+                result.removedValues(), result.encryptedValues());
     }
 }

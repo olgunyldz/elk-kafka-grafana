@@ -118,6 +118,27 @@
   td.mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
   td.ok { color: var(--ok); }
   td.err { color: var(--err); white-space: normal; }
+  /* Each response is a <tbody>: a summary row, then a full-width row with what was protected */
+  tbody.entry tr.main td { border-bottom: none; }
+  tbody.entry tr.detail td { white-space: normal; padding-top: 0; }
+  tbody.entry tr.detail .chip { overflow-wrap: anywhere; }
+  tbody.entry details { margin-top: 2px; }
+  tbody.entry summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+  tbody.entry pre {
+    margin: 4px 0 0; padding: 6px 8px; max-height: 180px; overflow: auto;
+    background: var(--code-bg); border-radius: 4px;
+    font: 11.5px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+
+  .samples { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+  .samples button { font-size: 12.5px; font-weight: 500; padding: 5px 10px; }
+  .samples button.active { border-color: var(--accent); color: var(--accent); }
+  .sample-note { font-size: 12px; color: var(--muted); min-height: 1.5em; margin-bottom: 14px; }
+  .chip { display: inline-block; font-size: 11.5px; border-radius: 4px; padding: 1px 6px; margin: 1px 4px 1px 0; }
+  .chip.enc { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+  .chip.rem { background: color-mix(in srgb, var(--err) 16%, transparent); color: var(--err); }
+  .muted { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -130,6 +151,10 @@
   <div class="grid">
     <section class="panel">
       <h2>Message</h2>
+
+      <label>Samples with card and personal data</label>
+      <div class="samples" id="samples"><span class="muted">Loading…</span></div>
+      <div class="sample-note" id="sampleNote"></div>
 
       <div class="field">
         <label for="topic">Topic</label>
@@ -183,9 +208,8 @@
 
       <h2>Latest responses</h2>
       <div class="log">
-        <table>
-          <thead><tr><th>#</th><th>Status</th><th>Topic-partition@offset</th><th>Time</th></tr></thead>
-          <tbody id="rows"></tbody>
+        <table id="rows">
+          <thead><tr><th>#</th><th>Status</th><th>Topic-partition@offset</th><th>Time</th><th>Sent to Kafka</th></tr></thead>
         </table>
       </div>
     </section>
@@ -298,7 +322,7 @@ let rowCount = 0;
 function resetResults() {
   Object.assign(stats, { sent: 0, ok: 0, err: 0, partitions: {}, started: performance.now() });
   rowCount = 0;
-  $("rows").innerHTML = "";
+  document.querySelectorAll("#rows tbody.entry").forEach((b) => b.remove());
   renderStats(0);
   renderPartitions();
 }
@@ -327,14 +351,61 @@ function renderPartitions() {
     </div>`).join("");
 }
 
-function addRow(n, ok, detail, ms) {
+// Short summary for the "Sent to Kafka" column
+function sentSummary(r) {
+  if (!r) return "";
+  const removed = (r.removedValues || []).length;
+  const encrypted = (r.encryptedValues || []).length;
+  if (!removed && !encrypted) return '<span class="muted">unchanged</span>';
+  return [removed && `<span class="chip rem">${removed} removed</span>`,
+          encrypted && `<span class="chip enc">${encrypted} encrypted</span>`].filter(Boolean).join("");
+}
+
+// What the PCI protection did, and the value exactly as Kafka stores it
+function sentDetail(td, r) {
+  const removed = r.removedValues || [];
+  const encrypted = r.encryptedValues || [];
+  const chip = (cls, prefix, text) => {
+    const span = document.createElement("span");
+    span.className = "chip " + cls;
+    span.textContent = prefix + text;
+    return span;
+  };
+  removed.forEach((v) => td.append(chip("rem", "removed: ", v)));
+  encrypted.forEach((v) => td.append(chip("enc", "encrypted: ", v)));
+  if (r.sent !== undefined) {
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = "value in Kafka";
+    const pre = document.createElement("pre");
+    pre.textContent = JSON.stringify(r.sent, null, 2);
+    details.append(summary, pre);
+    td.append(details);
+  }
+}
+
+function addRow(n, ok, detail, ms, response) {
+  const entry = document.createElement("tbody");
+  entry.className = "entry";
   const tr = document.createElement("tr");
+  tr.className = response ? "main" : "";
   tr.innerHTML = `<td>${n}</td>
     <td class="${ok ? "ok" : "err"}">${ok ? "202" : "error"}</td>
     <td class="${ok ? "mono" : "err"}"></td>
-    <td>${ms} ms</td>`;
+    <td>${ms} ms</td>
+    <td>${sentSummary(response)}</td>`;
   tr.children[2].textContent = detail;
-  $("rows").prepend(tr);
+  entry.append(tr);
+  if (response) {
+    const row = document.createElement("tr");
+    row.className = "detail";
+    const td = document.createElement("td");
+    td.colSpan = 5;
+    sentDetail(td, response);
+    row.append(td);
+    entry.append(row);
+  }
+  $("rows").querySelector("thead").after(entry);
   // Keep the table short
   if (++rowCount > 100) $("rows").lastElementChild.remove();
 }
@@ -352,7 +423,10 @@ async function sendOne(n, topic, body) {
     if (!res.ok) {
       const text = await res.text();
       let reason = "HTTP " + res.status;
-      try { reason += " " + (JSON.parse(text).error || ""); } catch (_) {}
+      try {
+        const err = JSON.parse(text);
+        reason += " " + (err.detail || err.error || "");
+      } catch (_) {}
       stats.err++;
       addRow(n, false, reason, ms);
       return;
@@ -361,7 +435,7 @@ async function sendOne(n, topic, body) {
     stats.ok++;
     const key = r.topic + "-" + r.partition;
     stats.partitions[key] = (stats.partitions[key] || 0) + 1;
-    addRow(n, true, `${r.topic}-${r.partition}@${r.offset}`, ms);
+    addRow(n, true, `${r.topic}-${r.partition}@${r.offset}`, ms, r);
   } catch (e) {
     stats.err++;
     addRow(n, false, e.message, Math.round(performance.now() - t0));
@@ -407,13 +481,51 @@ function setControls() {
   $("send").textContent = running ? "Sending…" : "Send";
 }
 
-$("topic").addEventListener("change", fillSample);
-$("newSample").addEventListener("click", fillSample);
+// ---- Samples with sensitive data (GET /api/samples) ----
+async function loadSamples() {
+  try {
+    const res = await fetch("/api/samples");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const samples = await res.json();
+    $("samples").innerHTML = "";
+    samples.forEach((s) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = s.label;
+      b.addEventListener("click", () => useSample(s, b));
+      $("samples").append(b);
+    });
+  } catch (e) {
+    $("samples").innerHTML = '<span class="muted">Samples unavailable: ' + e.message + "</span>";
+  }
+}
+
+function useSample(sample, button) {
+  if (running) return;
+  document.querySelectorAll(".samples button").forEach((b) => b.classList.remove("active"));
+  button.classList.add("active");
+  $("topic").value = sample.topic;
+  $("endpoint").textContent = "POST " + current().endpoint;
+  $("payload").value = JSON.stringify(sample.body, null, 2);
+  // Send exactly this body, once
+  $("randomize").checked = false;
+  $("count").value = 1;
+  $("sampleNote").textContent = "Expected: " + sample.expect;
+  validatePayload();
+}
+
+function clearSample() {
+  document.querySelectorAll(".samples button").forEach((b) => b.classList.remove("active"));
+  $("sampleNote").textContent = "";
+}
+
+$("topic").addEventListener("change", () => { clearSample(); fillSample(); });
+$("newSample").addEventListener("click", () => { clearSample(); fillSample(); });
 $("payload").addEventListener("input", validatePayload);
 $("send").addEventListener("click", run);
 $("stop").addEventListener("click", () => { stopRequested = true; });
 
-loadTopics();
+loadTopics().then(loadSamples);
 </script>
 </body>
 </html>

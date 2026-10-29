@@ -21,6 +21,12 @@ x-kafka-common: &kafka-common
     retries: 12
     start_period: 20s
 
+# Key for card and personal data in Kafka messages (AES-256, base64).
+# This is the PUBLIC lab key from the repo: anyone with it can decrypt. Override it with
+# DATA_ENCRYPTION_KEY in your shell or a .env file (git-ignored) for anything real.
+x-pci-env: &pci-env
+  DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:-+WpfE866Ysy6Lp51Q61eBAcupVyUtI5nnyxwm6avujc=}
+
 x-kafka-env: &kafka-env
   # Every node must share the same cluster ID
   CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
@@ -133,6 +139,7 @@ services:
       retries: 10
       start_period: 20s
     environment:
+      <<: *pci-env
       KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
       SIMULATOR_ENABLED: "false"
     depends_on:
@@ -156,6 +163,7 @@ services:
       retries: 10
       start_period: 20s
     environment:
+      <<: *pci-env
       KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
     depends_on:
       kafka-init:

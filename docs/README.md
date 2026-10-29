@@ -6,3 +6,4 @@ Articles that explain each step of the project: what was built, why, and the ide
 |------|--------|---------|
 | 01 | `step-01-kafka-init` | [A Kafka cluster from scratch, and what Kafka is for](01-kafka-cluster.md) |
 | 02 | `step-02-producer-consumer` | [Spring Boot producer and consumer for Kafka](step-02-producer-consumer.md) |
+| 03 | `step-03-protect-kafka-data` | [Protecting card and personal data in Kafka](step-03-protect-kafka-data.md) |

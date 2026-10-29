@@ -15,6 +15,18 @@
     <description>Kafka listeners that read logs and events</description>
 
     <dependencies>
+        <dependency>
+            <groupId>io.github.olgunyldz</groupId>
+            <artifactId>log-masking</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-kafka</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
         <!-- Web server only for the actuator health endpoint -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -19,6 +19,8 @@
     <description>Parent project for the Kafka producer and consumer services</description>
 
     <modules>
+        <!-- Library first: both apps depend on it -->
+        <module>log-masking</module>
         <module>producer</module>
         <module>consumer</module>
     </modules>
@@ -27,17 +29,15 @@
         <java.version>21</java.version>
     </properties>
 
-    <dependencies>
-        <!-- Shared by every module -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-kafka</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-actuator</artifactId>
-        </dependency>
-    </dependencies>
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.github.olgunyldz</groupId>
+                <artifactId>log-masking</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <build>
         <pluginManagement>
