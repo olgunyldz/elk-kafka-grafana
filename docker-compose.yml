@@ -1,12 +1,19 @@
 # Step 01: 3-node Kafka cluster (KRaft, no ZooKeeper) + topic init
 #
-# Inside the Docker network: kafka-1:9092, kafka-2:9092, kafka-3:9092
-# From the host:             localhost:19092, localhost:29092, localhost:39092
+# Inside Docker: kafka-1:9092, kafka-2:9092, kafka-3:9092
+# From the host: localhost:19092, localhost:29092, localhost:39092
+#
+# Networks, one per layer:
+#   data-layer     brokers + kafka-init           (internal: no route to the outside world)
+#   service-layer  brokers + producer, consumer, kafka-ui
+# The brokers join both layers, so services reach Kafka through service-layer,
+# while controller voting, replication and topic setup stay on data-layer.
 
 x-kafka-common: &kafka-common
   image: apache/kafka:4.0.0
   networks:
-    - elk-kafka-net
+    - data-layer
+    - service-layer
   healthcheck:
     test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
     interval: 10s
@@ -94,7 +101,7 @@ services:
         condition: service_healthy
     restart: "no"
     networks:
-      - elk-kafka-net
+      - data-layer
 
   kafka-ui:
     image: kafbat/kafka-ui:v1.2.0
@@ -108,7 +115,53 @@ services:
       kafka-init:
         condition: service_completed_successfully
     networks:
-      - elk-kafka-net
+      - service-layer
+
+  # Spring Boot apps (step 02). Built from springboot/, see each module's Dockerfile.
+  producer:
+    build:
+      context: ./springboot
+      dockerfile: producer/Dockerfile
+    image: elk-kafka-grafana/producer
+    container_name: producer
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8081/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+      SIMULATOR_ENABLED: "false"
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    networks:
+      - service-layer
+
+  consumer:
+    build:
+      context: ./springboot
+      dockerfile: consumer/Dockerfile
+    image: elk-kafka-grafana/consumer
+    container_name: consumer
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8082/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    networks:
+      - service-layer
 
 volumes:
   kafka-1-data:
@@ -116,6 +169,8 @@ volumes:
   kafka-3-data:
 
 networks:
-  elk-kafka-net:
-    name: elk-kafka-net
-    driver: bridge
+  data-layer:
+    name: data-layer
+    internal: true
+  service-layer:
+    name: service-layer

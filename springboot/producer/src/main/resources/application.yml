@@ -1,0 +1,39 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: producer
+  kafka:
+    # Host-side listeners of the step 01 cluster. Inside Docker use kafka-1:9092,kafka-2:9092,kafka-3:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092,localhost:29092,localhost:39092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
+      # Wait for all in-sync replicas (at least 2, see min.insync.replicas) before a send counts as done
+      acks: all
+      properties:
+        enable.idempotence: true
+        linger.ms: 5
+        # Short type names in the __TypeId__ header, so the consumer doesn't need our class names
+        spring.json.type.mapping: "log:io.github.olgunyldz.producer.model.LogMessage,event:io.github.olgunyldz.producer.model.AppEvent,metric:io.github.olgunyldz.producer.model.MetricMessage"
+
+app:
+  kafka:
+    topics:
+      logs: app-logs
+      events: app-events
+      metrics: app-metrics
+  simulator:
+    enabled: ${SIMULATOR_ENABLED:false}
+    interval: 1s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    io.github.olgunyldz.producer: DEBUG

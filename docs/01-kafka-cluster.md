@@ -173,4 +173,4 @@ If every change is kept as an event, the current state can be rebuilt by replayi
 
 ## Next step
 
-Step 02 connects the first consumer: **Logstash** reads `app-logs` from `kafka-1:9092,kafka-2:9092,kafka-3:9092` over the shared `elk-kafka-net` network and writes the logs to **Elasticsearch**.
+Step 02 connects the first consumer: **Logstash** reads `app-logs` from `kafka-1:9092,kafka-2:9092,kafka-3:9092` over its own Docker network, which the brokers also join, and writes the logs to **Elasticsearch**.

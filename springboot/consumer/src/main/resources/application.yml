@@ -1,0 +1,33 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: consumer
+  kafka:
+    # Host-side listeners of the step 01 cluster. Inside Docker use kafka-1:9092,kafka-2:9092,kafka-3:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092,localhost:29092,localhost:39092}
+    consumer:
+      # A new group starts from the oldest record still in the topic
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # Wraps the JSON deserializer: a record that isn't valid JSON goes to the error handler instead of failing the poll loop
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
+      properties:
+        spring.deserializer.value.delegate.class: org.springframework.kafka.support.serializer.JacksonJsonDeserializer
+        # Same type ids as the producer, mapped to this service's own classes
+        spring.json.type.mapping: "log:io.github.olgunyldz.consumer.model.LogMessage,event:io.github.olgunyldz.consumer.model.AppEvent,metric:io.github.olgunyldz.consumer.model.MetricMessage"
+        spring.json.trusted.packages: io.github.olgunyldz.consumer.model
+
+app:
+  kafka:
+    topics:
+      logs: app-logs
+      events: app-events
+      metrics: app-metrics
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
