@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * A read-only view of a logging event with sensitive data masked: the formatted message,
@@ -21,6 +22,13 @@ import java.util.Map;
  * original arguments.
  */
 final class MaskedLoggingEvent implements ILoggingEvent {
+
+    /**
+     * MDC values that are random ids, never data: tracing's trace and span ids. A 32-digit hex trace id
+     * sometimes contains a digit run that a number rule would mask, which would break the link from a
+     * log line to its trace.
+     */
+    static final Set<String> UNMASKED_MDC_KEYS = Set.of("traceId", "spanId");
 
     private final ILoggingEvent delegate;
     private final SensitiveDataMasker masker;
@@ -60,7 +68,7 @@ final class MaskedLoggingEvent implements ILoggingEvent {
                 maskedMdc = mdc;
             } else {
                 Map<String, String> copy = new LinkedHashMap<>();
-                mdc.forEach((k, v) -> copy.put(k, masker.mask(v)));
+                mdc.forEach((k, v) -> copy.put(k, UNMASKED_MDC_KEYS.contains(k) ? v : masker.mask(v)));
                 maskedMdc = copy;
             }
         }

@@ -2,14 +2,14 @@
 #
 # Kafka inside Docker: kafka-1:9092 · from the host: localhost:19092
 # Web UIs: kafka-ui http://localhost:8080 · producer http://localhost:8081 · Kibana http://localhost:5601
-#          Grafana http://localhost:3000 · Prometheus http://localhost:9090
+#          Grafana http://localhost:3000 (traces: Explore → Tempo) · Prometheus http://localhost:9090
 #
 # Networks, one per layer:
 #   data-layer     kafka-1, kafka-init, elasticsearch, + logstash, kibana, kibana-setup, filebeat
 #                  (internal: no route to the outside world, no published ports for its-only members)
 #   service-layer  kafka-1, producer, consumer, kafka-ui, filebeat-apps, kafka-exporter, grafana,
-#                  + logstash, kibana, prometheus, blackbox-exporter
-# Containers that bridge the layers (kafka-1, logstash, kibana, prometheus, blackbox-exporter) join both.
+#                  tempo, + logstash, kibana, prometheus, blackbox-exporter, grafana
+# Containers that bridge the layers (kafka-1, logstash, kibana, prometheus, blackbox-exporter, grafana) join both.
 #
 # Memory: one broker and capped JVM heaps keep the whole stack around 5-6 GB.
 
@@ -157,6 +157,7 @@ services:
     environment:
       <<: [*pci-env, *logging-env]
       KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092
+      OTLP_TRACING_ENDPOINT: http://tempo:4318/v1/traces
       SIMULATOR_ENABLED: "false"
     depends_on:
       kafka-init:
@@ -164,14 +165,18 @@ services:
     networks:
       - service-layer
 
+  # Two replicas (pods): the consumer groups spread the topic partitions over both. No container_name
+  # (it must be unique), so the containers are elk-kafka-grafana-consumer-1 and -2; inside Docker the
+  # service name "consumer" resolves to both. Host ports: 8082 and 8083, one per replica.
   consumer:
     build:
       context: ./springboot
       dockerfile: consumer/Dockerfile
     image: elk-kafka-grafana/consumer
-    container_name: consumer
+    deploy:
+      replicas: 2
     ports:
-      - "8082:8082"
+      - "8082-8083:8082"
     healthcheck:
       test: ["CMD", "curl", "-fs", "http://localhost:8082/actuator/health"]
       interval: 10s
@@ -181,15 +186,41 @@ services:
     environment:
       <<: [*pci-env, *logging-env]
       KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092
+      OTLP_TRACING_ENDPOINT: http://tempo:4318/v1/traces
+      MESSAGE_API_URL: http://message-api:8084
     depends_on:
       kafka-init:
         condition: service_completed_successfully
+      message-api:
+        condition: service_healthy
+    networks:
+      - service-layer
+
+  # REST API the consumer calls for every record it handled: logs the notice and acknowledges it.
+  # The trace continues here: producer → Kafka → consumer → message-api.
+  message-api:
+    build:
+      context: ./springboot
+      dockerfile: message-api/Dockerfile
+    image: elk-kafka-grafana/message-api
+    container_name: message-api
+    ports:
+      - "8084:8084"
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8084/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    environment:
+      <<: *logging-env
+      OTLP_TRACING_ENDPOINT: http://tempo:4318/v1/traces
     networks:
       - service-layer
 
   # ---- ELK: Elasticsearch, Logstash, Kibana, plus Filebeat ---------------------------------
   #   Kafka messages: app-events, app-log-messages, app-metrics --> logstash --> kafka-messages-<topic>
-  #   App logs:       producer, consumer --> filebeat-apps --> app-logs --> logstash --> app-logs-YYYY.MM.dd
+  #   App logs:       producer, consumer (x2), message-api --> filebeat-apps --> app-logs --> logstash --> app-logs-YYYY.MM.dd
   #   Infra logs:     kafka-1, kafka-init, kafka-ui --> filebeat --> infra-logs-YYYY.MM.dd (no Kafka)
 #   ELK logs:       elasticsearch, logstash, kibana, kibana-setup --> filebeat --> elk-logs-YYYY.MM.dd
 # Kibana data views: App logs (microservices), Infra logs, All logs (everything but the microservices), Kafka messages
@@ -377,6 +408,13 @@ services:
   prometheus:
     image: prom/prometheus:v2.55.1
     container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Exemplars: a trace id stored next to a metric sample, so Grafana can jump from a slow request to its trace
+      - --enable-feature=exemplar-storage
+      # Tempo's metrics generator writes service-graph and span metrics here
+      - --web.enable-remote-write-receiver
     ports:
       - "9090:9090"
     volumes:
@@ -389,8 +427,23 @@ services:
       - data-layer        # to reach blackbox-exporter there as well
       - service-layer     # to reach the broker, the apps, kafka-exporter; and publish port 9090
 
-  # Grafana at http://localhost:3000 (no login): the Prometheus data source and the dashboards
-  # are provisioned from monitoring/grafana
+  # Traces: the apps send spans over OTLP; Grafana shows them (Explore → Tempo) and links them to
+  # logs (Elasticsearch) and metrics (Prometheus). Config: monitoring/tempo.yml
+  tempo:
+    image: grafana/tempo:2.8.2
+    container_name: tempo
+    user: root                      # the image's user can't write to a fresh named volume
+    command: ["-config.file=/etc/tempo.yml"]
+    ports:
+      - "4318:4318"                 # OTLP/HTTP: for the apps when you run them on your machine
+    volumes:
+      - ./monitoring/tempo.yml:/etc/tempo.yml:ro
+      - tempo-data:/var/tempo
+    networks:
+      - service-layer
+
+  # Grafana at http://localhost:3000 (no login): the data sources (Prometheus, Tempo, Elasticsearch)
+  # and the dashboards are provisioned from monitoring/grafana
   grafana:
     image: grafana/grafana:11.3.1
     container_name: grafana
@@ -408,10 +461,13 @@ services:
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
+      - tempo
     networks:
+      - data-layer        # to read logs from Elasticsearch (trace → logs)
       - service-layer
 
 volumes:
+  tempo-data:
   jmx-agent:
   prometheus-data:
   kafka-1-data:

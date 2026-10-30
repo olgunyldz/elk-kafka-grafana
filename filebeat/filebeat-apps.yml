@@ -1,5 +1,5 @@
 # Filebeat for the Spring Boot apps: their own log lines go to Kafka.
-#   producer, consumer (ECS JSON on stdout) --> Docker log files --> filebeat-apps --> topic app-logs
+#   producer, consumer (2 replicas), message-api (ECS JSON on stdout) --> Docker log files --> filebeat-apps --> topic app-logs
 # Kafka is the buffer: if Logstash or Elasticsearch is down, logs wait in the topic and are indexed later.
 # The apps already mask card and personal data before writing (log-masking library, layer 1);
 # the replace processors below are layer 2, Logstash is layer 3.
@@ -8,10 +8,13 @@ filebeat.autodiscover:
   providers:
     - type: docker
       templates:
+        # By Compose service, not container name: the consumer's replicas are named
+        # elk-kafka-grafana-consumer-1 and -2
         - condition:
             or:
-              - equals.docker.container.name: producer
-              - equals.docker.container.name: consumer
+              - equals.docker.container.labels.com.docker.compose.service: producer
+              - equals.docker.container.labels.com.docker.compose.service: consumer
+              - equals.docker.container.labels.com.docker.compose.service: message-api
           config:
             - type: filestream
               id: "app-${data.docker.container.id}"
@@ -28,7 +31,7 @@ filebeat.autodiscover:
 processors:
   - copy_fields:
       fields:
-        - from: container.name     # container_name = Compose service name in this project
+        - from: docker.container.labels.com_docker_compose_service   # the Compose service, same for every replica
           to: service.compose
       fail_on_error: false
       ignore_missing: true

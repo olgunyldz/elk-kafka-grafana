@@ -20,7 +20,7 @@ public class KafkaErrorConfig {
     @Bean
     DefaultErrorHandler kafkaErrorHandler() {
         return new DefaultErrorHandler(
-                (record, ex) -> log.error("Skipping {}-{}@{} after retries: {}",
+                (record, ex) -> log.error("Skipping {} partition {} offset {} after retries: {}",
                         record.topic(), record.partition(), record.offset(), ex.getMessage()),
                 new FixedBackOff(1000L, 3));
     }

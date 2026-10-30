@@ -7,3 +7,8 @@ datasources:
     access: proxy
     url: http://prometheus:9090
     isDefault: true
+    jsonData:
+      # Exemplars carry a trace_id: Grafana shows them as dots on a graph, linked to the trace in Tempo
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo

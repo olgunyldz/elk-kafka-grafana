@@ -54,7 +54,7 @@ public class PciDecryptingRecordInterceptor implements RecordInterceptor<Object,
                     record.key(), decryptedValue, record.headers(), record.leaderEpoch());
         } catch (IllegalArgumentException e) {
             // Wrong key or modified token: the listener gets the record as it is in Kafka, never a guess
-            log.warn("Can't decrypt {}-{}@{}: producer and consumer need the same pci.data-encryption-key",
+            log.warn("Can't decrypt {} partition {} offset {}: producer and consumer need the same pci.data-encryption-key",
                     record.topic(), record.partition(), record.offset());
             return record;
         }

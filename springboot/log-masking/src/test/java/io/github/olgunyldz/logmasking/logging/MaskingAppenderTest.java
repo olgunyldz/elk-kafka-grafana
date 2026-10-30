@@ -64,6 +64,22 @@ class MaskingAppenderTest {
     }
 
     @Test
+    void leavesTraceIdsInTheMdcAlone() {
+        // A trace id that contains a valid national ID digit run: masking it would break log-to-trace links
+        String traceId = "abc10000000146def0123456789abcde";
+        context.getMDCAdapter().put("traceId", traceId);
+        context.getMDCAdapter().put("note", "tckn 10000000146");
+        try {
+            logger.info("hello");
+            assertThat(captured.list.get(0).getMDCPropertyMap())
+                    .containsEntry("traceId", traceId)
+                    .containsEntry("note", "tckn *********46");
+        } finally {
+            context.getMDCAdapter().clear();
+        }
+    }
+
+    @Test
     void masksKeyValuePairs() {
         logger.atInfo().setMessage("refund").addKeyValue("iban", "TR330006100519786457841326").log();
 

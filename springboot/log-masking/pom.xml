@@ -43,6 +43,12 @@
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
         </dependency>
+        <!-- Optional: only for MaskingObservationFilter, which masks span attributes (tracing) -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-observation</artifactId>
+            <optional>true</optional>
+        </dependency>
         <!-- Optional: only for LogMaskingApplicationListener, which installs masking in Spring Boot apps -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

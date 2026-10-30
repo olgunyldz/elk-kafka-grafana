@@ -1,0 +1,53 @@
+apiVersion: 1
+
+datasources:
+  # Traces of the producer and consumer (Explore → Tempo)
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      # Service map: drawn from the service-graph metrics Tempo's metrics generator writes to Prometheus
+      serviceMap:
+        datasourceUid: prometheus
+      nodeGraph:
+        enabled: true
+      # From a span to the app log lines of the same trace (Elasticsearch, app-logs-*)
+      tracesToLogsV2:
+        datasourceUid: elasticsearch-app-logs
+        spanStartTimeShift: "-5m"
+        spanEndTimeShift: "5m"
+        filterByTraceID: false
+        filterBySpanID: false
+        customQuery: true
+        query: 'trace.id:"$${__span.traceId}"'
+      # From a span to its service's request rate and errors in Prometheus
+      tracesToMetrics:
+        datasourceUid: prometheus
+        spanStartTimeShift: "-5m"
+        spanEndTimeShift: "5m"
+        tags:
+          - key: service.name
+            value: application
+        queries:
+          - name: Request rate
+            query: 'sum(rate(http_server_requests_seconds_count{$$__tags}[1m]))'
+      search:
+        hide: false
+      traceQuery:
+        timeShiftEnabled: true
+        spanStartTimeShift: "-5m"
+        spanEndTimeShift: "5m"
+
+  # The apps' log lines, for the trace-to-logs link (and Explore → Elasticsearch)
+  - name: App logs
+    uid: elasticsearch-app-logs
+    type: elasticsearch
+    access: proxy
+    url: http://elasticsearch:9200
+    jsonData:
+      index: "app-logs-*"
+      timeField: "@timestamp"
+      logMessageField: message
+      logLevelField: log.level

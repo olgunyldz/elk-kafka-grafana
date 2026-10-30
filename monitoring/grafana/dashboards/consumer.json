@@ -440,7 +440,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "@KafkaListener calls that threw an exception. Should be 0.",
+      "description": "@KafkaListener calls that threw an error type. Should be 0.",
       "gridPos": {
         "h": 4,
         "w": 4,
@@ -453,7 +453,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(spring_kafka_listener_seconds_count{application=\"consumer\", source=~\"$source\", result=\"failure\"}[1m]))",
+          "expr": "sum(rate(spring_kafka_listener_seconds_count{application=\"consumer\", source=~\"$source\", error!=\"none\"}[1m]))",
           "legendFormat": "",
           "refId": "A",
           "instant": true,
@@ -998,8 +998,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (name, result) (rate(spring_kafka_listener_seconds_count{application=\"consumer\", source=~\"$source\"}[1m]))",
-          "legendFormat": "{{name}} {{result}}",
+          "expr": "sum by (spring_kafka_listener_id, error) (rate(spring_kafka_listener_seconds_count{application=\"consumer\", source=~\"$source\"}[1m]))",
+          "legendFormat": "{{spring_kafka_listener_id}} {{error}}",
           "refId": "A",
           "instant": false,
           "range": true
@@ -1050,8 +1050,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (name) (rate(spring_kafka_listener_seconds_sum{application=\"consumer\", source=~\"$source\"}[1m])) / sum by (name) (rate(spring_kafka_listener_seconds_count{application=\"consumer\", source=~\"$source\"}[1m]))",
-          "legendFormat": "{{name}} avg",
+          "expr": "sum by (spring_kafka_listener_id) (rate(spring_kafka_listener_seconds_sum{application=\"consumer\", source=~\"$source\"}[1m])) / sum by (spring_kafka_listener_id) (rate(spring_kafka_listener_seconds_count{application=\"consumer\", source=~\"$source\"}[1m]))",
+          "legendFormat": "{{spring_kafka_listener_id}} avg",
           "refId": "A",
           "instant": false,
           "range": true
@@ -1061,8 +1061,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max by (name) (spring_kafka_listener_seconds_max{application=\"consumer\", source=~\"$source\"})",
-          "legendFormat": "{{name}} max",
+          "expr": "max by (spring_kafka_listener_id) (spring_kafka_listener_seconds_max{application=\"consumer\", source=~\"$source\"})",
+          "legendFormat": "{{spring_kafka_listener_id}} max",
           "refId": "B",
           "instant": false,
           "range": true
@@ -1094,7 +1094,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Failures by exception",
+      "title": "Failures by error type",
       "id": 22,
       "datasource": {
         "type": "prometheus",
@@ -1113,8 +1113,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (name, exception) (rate(spring_kafka_listener_seconds_count{application=\"consumer\", source=~\"$source\", result=\"failure\"}[1m]))",
-          "legendFormat": "{{name}} {{exception}}",
+          "expr": "sum by (spring_kafka_listener_id, error) (rate(spring_kafka_listener_seconds_count{application=\"consumer\", source=~\"$source\", error!=\"none\"}[1m]))",
+          "legendFormat": "{{spring_kafka_listener_id}} {{error}}",
           "refId": "A",
           "instant": false,
           "range": true

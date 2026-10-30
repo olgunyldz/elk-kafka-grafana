@@ -1084,7 +1084,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (source) (rate(spring_kafka_template_seconds_sum{application=\"producer\", result=\"success\"}[1m])) / sum by (source) (rate(spring_kafka_template_seconds_count{application=\"producer\", result=\"success\"}[1m]))",
+          "expr": "sum by (source) (rate(spring_kafka_template_seconds_sum{application=\"producer\", error=\"none\"}[1m])) / sum by (source) (rate(spring_kafka_template_seconds_count{application=\"producer\", error=\"none\"}[1m]))",
           "legendFormat": "{{source}} avg",
           "refId": "A"
         },
@@ -1126,7 +1126,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Successful and failed sends per second; failures show the exception, e.g. TimeoutException when brokers are down.",
+      "description": "Successful and failed sends per second; failures show the error type, e.g. TimeoutException when brokers are down.",
       "gridPos": {
         "h": 8,
         "w": 8,
@@ -1139,8 +1139,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (result, exception) (rate(spring_kafka_template_seconds_count{application=\"producer\"}[1m]))",
-          "legendFormat": "{{result}} {{exception}}",
+          "expr": "sum by (error) (rate(spring_kafka_template_seconds_count{application=\"producer\"}[1m]))",
+          "legendFormat": "{{error}} {{error}}",
           "refId": "A"
         }
       ],
@@ -1446,8 +1446,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (name) (rate(spring_kafka_listener_seconds_sum{application=\"consumer\"}[1m])) / sum by (name) (rate(spring_kafka_listener_seconds_count{application=\"consumer\"}[1m]))",
-          "legendFormat": "{{name}} avg",
+          "expr": "sum by (spring_kafka_listener_id) (rate(spring_kafka_listener_seconds_sum{application=\"consumer\"}[1m])) / sum by (spring_kafka_listener_id) (rate(spring_kafka_listener_seconds_count{application=\"consumer\"}[1m]))",
+          "legendFormat": "{{spring_kafka_listener_id}} avg",
           "refId": "A"
         }
       ],
@@ -1492,8 +1492,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (name, result) (rate(spring_kafka_listener_seconds_count{application=\"consumer\"}[1m]))",
-          "legendFormat": "{{name}} {{result}}",
+          "expr": "sum by (spring_kafka_listener_id, error) (rate(spring_kafka_listener_seconds_count{application=\"consumer\"}[1m]))",
+          "legendFormat": "{{spring_kafka_listener_id}} {{error}}",
           "refId": "A"
         }
       ],

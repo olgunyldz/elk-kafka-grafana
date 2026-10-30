@@ -1,5 +1,6 @@
 package io.github.olgunyldz.consumer.listener;
 
+import io.github.olgunyldz.consumer.client.MessageApiClient;
 import io.github.olgunyldz.consumer.model.MetricMessage;
 import io.github.olgunyldz.logmasking.logging.PciLogger;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -14,11 +15,19 @@ public class MetricListener {
 
     private static final Logger log = PciLogger.getLogger(MetricListener.class);
 
+    private final MessageApiClient messageApi;
+
+    public MetricListener(MessageApiClient messageApi) {
+        this.messageApi = messageApi;
+    }
+
     @KafkaListener(id = "metric-listener", topics = "${app.kafka.topics.metrics}", groupId = "metric-consumer", concurrency = "3")
     void onMetric(ConsumerRecord<String, MetricMessage> record, @Header(KafkaHeaders.GROUP_ID) String groupId) {
         var metric = record.value();
         log.info("[group {}] Key: {} | Value: {}={} {} | Partition: {} | Offset: {}",
                 groupId, record.key(), metric.name(), metric.value(), metric.tags(),
                 record.partition(), record.offset());
+        // Tell message-api (REST): the trace continues there
+        messageApi.notify(record, metric.name(), groupId);
     }
 }

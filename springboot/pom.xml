@@ -23,6 +23,7 @@
         <module>log-masking</module>
         <module>producer</module>
         <module>consumer</module>
+        <module>message-api</module>
     </modules>
 
     <properties>

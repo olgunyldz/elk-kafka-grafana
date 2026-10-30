@@ -4,7 +4,15 @@ server:
 spring:
   application:
     name: consumer
+  # Timeouts for the RestClient calls to message-api: a slow API must not stall the listener threads
+  http:
+    clients:
+      connect-timeout: 2s
+      read-timeout: 3s
   kafka:
+    listener:
+      # Observation: a span per record, continuing the producer's trace from the traceparent header
+      observation-enabled: true
     # Host-side listener of the broker. Inside Docker: kafka-1:9092
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092}
     consumer:
@@ -20,6 +28,9 @@ spring:
         spring.json.trusted.packages: io.github.olgunyldz.consumer.model
 
 app:
+  # Called for every record a listener handled (consumer → message-api), see MessageApiClient
+  message-api:
+    url: ${MESSAGE_API_URL:http://localhost:8084}
   kafka:
     topics:
       # LogMessage records from POST /api/logs. app-logs holds the apps' own log lines (Filebeat)
@@ -45,6 +56,24 @@ management:
     tags:
       # Every metric carries application="producer" / "consumer": the Grafana dashboards filter on it
       application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: 1.0            # trace every request (lab); the default is 0.1
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          # Tempo's OTLP/HTTP receiver. Inside Docker: http://tempo:4318/v1/traces
+          endpoint: ${OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+  # Only traces go over OTLP: metrics go to Prometheus, logs through Filebeat
+  otlp:
+    metrics:
+      export:
+        enabled: false
+  logging:
+    export:
+      otlp:
+        enabled: false
 
 logging:
   # Plain text by default (IDE, mvn spring-boot:run). Docker sets LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs

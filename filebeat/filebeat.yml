@@ -1,7 +1,7 @@
 # Filebeat for every container except the microservices: straight to Elasticsearch, without Kafka.
 #   kafka-1, kafka-init, kafka-ui, monitoring containers   --> infra-logs-YYYY.MM.dd  ("Infra logs" data view)
 #   elasticsearch, logstash, kibana, kibana-setup          --> elk-logs-YYYY.MM.dd    ("All logs" adds these)
-#   (monitoring: kafka-exporter, blackbox-exporter, cadvisor, prometheus, grafana, jmx-exporter-download)
+#   (monitoring: kafka-exporter, blackbox-exporter, cadvisor, prometheus, grafana, tempo, jmx-exporter-download)
 # The broker's logs must not depend on Kafka being healthy, so this path skips Kafka.
 # Left out: the microservices (their logs go through Kafka, see filebeat-apps.yml) and the Filebeats themselves.
 
@@ -34,8 +34,9 @@ filebeat.autodiscover:
               - has_fields: [ "docker.container.labels.com.docker.compose.service" ]
               - not:
                   or:
-                    - equals.docker.container.name: producer
-                    - equals.docker.container.name: consumer
+                    - equals.docker.container.labels.com.docker.compose.service: producer
+                    - equals.docker.container.labels.com.docker.compose.service: consumer
+                    - equals.docker.container.labels.com.docker.compose.service: message-api
                     - equals.docker.container.name: kafka-1
                     - equals.docker.container.name: kafka-init
                     - equals.docker.container.name: filebeat
@@ -51,7 +52,7 @@ filebeat.autodiscover:
 processors:
   - copy_fields:
       fields:
-        - from: container.name     # container_name = Compose service name in this project
+        - from: docker.container.labels.com_docker_compose_service   # the Compose service
           to: service.compose
       fail_on_error: false
       ignore_missing: true
@@ -119,6 +120,7 @@ output.elasticsearch:
         - equals.container.name: grafana
         - equals.container.name: jmx-exporter-download
         - equals.container.name: cadvisor
+        - equals.container.name: tempo
 
 # Plain indices: no Filebeat template or ILM policy; Elasticsearch maps the fields dynamically
 setup.template.enabled: false

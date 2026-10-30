@@ -15,10 +15,22 @@ scrape_configs:
   # Spring Boot apps (Kafka client, Spring Kafka, HTTP and JVM metrics from Actuator)
   - job_name: kafka-apps
     metrics_path: /actuator/prometheus
+    # Exemplars (trace ids on the HTTP histograms) only come in the OpenMetrics format
+    scrape_protocols: [ OpenMetricsText1.0.0, PrometheusText0.0.4 ]
     static_configs:
-      - targets: [ "producer:8081", "consumer:8082" ]
+      - targets: [ "producer:8081", "message-api:8084" ]
         labels:
           source: docker
+    # The consumer runs as 2 replicas: Docker's DNS returns every replica's address for "consumer",
+    # so each one becomes its own target (instance = its IP)
+    dns_sd_configs:
+      - names: [ "consumer" ]
+        type: A
+        port: 8082
+        refresh_interval: 15s
+    relabel_configs:
+      - target_label: source
+        replacement: docker
       # The same apps started on your machine (IDE / mvn spring-boot:run). Off by default: the
       # containers publish ports 8081 and 8082 too, so these would scrape the containers a second
       # time and double every total. Uncomment after `docker compose stop producer consumer`.
@@ -35,8 +47,10 @@ scrape_configs:
     static_configs:
       - targets: [ "http://producer:8081/actuator/health" ]
         labels: { service: producer }
-      - targets: [ "http://consumer:8082/actuator/health" ]
+      - targets: [ "http://consumer:8082/actuator/health" ]   # one of the replicas, whichever DNS returns
         labels: { service: consumer }
+      - targets: [ "http://message-api:8084/actuator/health" ]
+        labels: { service: message-api }
       - targets: [ "http://kafka-ui:8080/" ]
         labels: { service: kafka-ui }
       - targets: [ "http://kafka-exporter:9308/metrics" ]
@@ -57,6 +71,8 @@ scrape_configs:
         labels: { service: filebeat-apps }
       - targets: [ "http://cadvisor:8080/healthz" ]
         labels: { service: cadvisor }
+      - targets: [ "http://tempo:3200/ready" ]
+        labels: { service: tempo }
     relabel_configs: &blackbox-relabel
       # Send the target to blackbox-exporter as ?target=..., and keep it as the instance label
       - source_labels: [ __address__ ]
