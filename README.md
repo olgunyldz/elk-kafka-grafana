@@ -9,6 +9,34 @@ A log and metrics pipeline built one step at a time. Each step is a branch.
 | 03 | `step-03-protect-kafka-data` | No card or personal data readable in Kafka |
 | 04 | `step-04-logging` | App logs as masked ECS JSON, shipped to Kafka |
 | 05 | `step-05-elk` | Kafka messages and all logs searchable in Kibana |
+| 06 | `step-06-mask-logging` | No sensitive data in any log, at three layers |
+
+# Step 06: Masking in three layers
+
+**Goal:** no sensitive data in any log, at three layers.
+
+For the full design, read [docs/step-06-mask-logging.md](docs/step-06-mask-logging.md).
+
+| Layer | Where | Covers |
+|-------|-------|--------|
+| 1. App (step 04) | `log-masking`: `PciLogger`, `MaskingAppender` | Logs of apps that use the library |
+| 2. Filebeat | `replace` processors in `filebeat/filebeat.yml` and `filebeat/filebeat-apps.yml` | Every container log Filebeat ships |
+| 3. Logstash | `logstash/pipeline/shared/mask_sensitive.rb` in both pipelines | Everything stored in Elasticsearch: app logs and Kafka messages |
+
+Card numbers keep their last 4 digits; CVV, PIN, passwords and tokens become `***`; IBANs, national IDs, emails, phones, names and addresses are masked too. Layer 3 checks checksums and keys and leaves the encrypted tokens from step 03 alone. Its self-tests run at every pipeline start, and a failing test stops the pipeline:
+
+```bash
+docker compose up -d --force-recreate logstash filebeat filebeat-apps
+docker compose logs logstash | grep "Test run complete"   # passed: 6, failed: 0 (once per pipeline)
+```
+
+Try layer 2 on its own: write an unmasked line into the broker's console, then search *Infra logs* in Kibana for `LEAKTEST`:
+
+```bash
+docker exec kafka-1 sh -c "echo '[2026-10-30 05:30:00,000] INFO LEAKTEST card 4111 1111 1111 1111 password=hunter2 mail jane.doe@example.com' > /proc/1/fd/1"
+```
+
+---
 
 # Step 05: ELK
 

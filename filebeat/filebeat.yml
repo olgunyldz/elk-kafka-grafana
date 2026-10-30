@@ -55,6 +55,52 @@ processors:
       fail_on_error: false
       ignore_missing: true
 
+  # ---- Masking of card and personal data (layer 2 of 3; keep in sync with filebeat.yml / filebeat-apps.yml) ----
+  # The apps already mask with the log-masking library (layer 1); this catches what slips through, also in
+  # the logs of other services. Go regexps (RE2) have no lookbehind and no checksums, so these patterns are
+  # stricter than the library's and can mask a harmless number too. Logstash (layer 3) checks checksums.
+  # Replacements use $1, not ${1}: Filebeat would read ${...} as an environment variable.
+  - replace:
+      ignore_missing: true
+      fail_on_error: false
+      fields:
+        # values of sensitive keys: password=..., "cvv":"123", Authorization: Bearer ..., tckn=...
+        - field: message
+          pattern: '(?i)(["'']?\b(?:password|passwd|pwd|secret|client[_-]?secret|token|access[_-]?token|refresh[_-]?token|id[_-]?token|api[_-]?key|apikey|authorization|cvv2?|cvc2?|cid|security[_-]?code|pin|pin[_-]?block|tckn|tc[_-]?kimlik[_-]?no|national[_-]?id)\b["'']?\s*[:=]\s*["'']?)(?:(?:Bearer|Basic)\s+)?[^"''\s,;&}\[\]]*[^"''\s,;&}\[\].]'
+          replacement: '$1***'
+        # values of personal keys (names, birth date, address), spaces included, up to the next delimiter
+        - field: message
+          pattern: '(?i)(["'']?\b(?:first[_-]?name|last[_-]?name|full[_-]?name|surname|customer[_-]?name|holder[_-]?name|cardholder(?:[_-]?name)?|name[_-]?on[_-]?card|birth[_-]?date|date[_-]?of[_-]?birth|dob|address|street(?:[_-]?address)?|address[_-]?line[12]|city|postal[_-]?code|zip)\b["'']?\s*[:=]\s*["'']?)[^"'',;&{}\[\]\r\n*][^"'',;&{}\[\]\r\n]*'
+          replacement: '$1***'
+        # card expiry after a key: expiry=12/27
+        - field: message
+          pattern: '(?i)(\bexp(?:iry|iration)?(?:[_-]?date)?["'']?\s*[:=]\s*["'']?)\d{1,2}\s*/\s*\d{2,4}'
+          replacement: '$1**/**'
+        # IBAN: country code and last 4 stay
+        - field: message
+          pattern: '\b([A-Z]{2})\d{2}(?: ?[A-Z0-9]{4}){2,6} ?[A-Z0-9]{0,3}([A-Z0-9]{4})\b'
+          replacement: '$1********************$2'
+        # card number (13-19 digits, network digit 2-6, spaces/dashes allowed): last 4 stay
+        - field: message
+          pattern: '\b[2-6](?:\d[ -]?){8,14}(\d{4})\b'
+          replacement: '************$1'
+        # Turkish national ID: 11 digits, first not 0; without a checksum this also masks other 11-digit numbers
+        - field: message
+          pattern: '\b[1-9]\d{8}(\d{2})\b'
+          replacement: '*********$1'
+        # email: first character and domain stay; the local part is masked even if the domain is cut off
+        - field: message
+          pattern: '(^|[^A-Za-z0-9._%+-])([A-Za-z0-9._%+-])[A-Za-z0-9._%+-]*@([A-Za-z0-9-])'
+          replacement: '$1$2***@$3'
+        # international phone: last 2 stay
+        - field: message
+          pattern: '\+\d(?:[ ().-]?\d){7,12}[ ().-]?(\d{2})\b'
+          replacement: '+**********$1'
+        # Turkish mobile 05xx xxx xx xx: last 2 stay
+        - field: message
+          pattern: '\b0?5\d{2}[ -]?\d{3}[ -]?\d{2}[ -]?(\d{2})\b'
+          replacement: '*********$1'
+
 # Daily indices, next to app-logs-YYYY.MM.dd, instead of Filebeat's default filebeat-<version> data stream.
 # The Kafka infrastructure goes to infra-logs-*, everything else (the ELK stack) to elk-logs-*.
 output.elasticsearch:

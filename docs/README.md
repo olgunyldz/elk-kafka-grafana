@@ -9,3 +9,4 @@ Articles that explain each step of the project: what was built, why, and the ide
 | 03 | `step-03-protect-kafka-data` | [Protecting card and personal data in Kafka](step-03-protect-kafka-data.md) |
 | 04 | `step-04-logging` | [Logging: ECS JSON, masking, and app logs in Kafka](step-04-logging.md) |
 | 05 | `step-05-elk` | [ELK: Kafka messages and all logs searchable in Kibana](step-05-elk.md) |
+| 06 | `step-06-mask-logging` | [Masking in three layers: no sensitive data in any log](step-06-mask-logging.md) |
