@@ -7,6 +7,42 @@ A log and metrics pipeline built one step at a time. Each step is a branch.
 | 01 | `step-01-kafka-init` | A running Kafka cluster and topics, used from the CLI |
 | 02 | `step-02-producer-consumer` | Spring Boot producer and consumer |
 | 03 | `step-03-protect-kafka-data` | No card or personal data readable in Kafka |
+| 04 | `step-04-logging` | App logs as masked ECS JSON, shipped to Kafka |
+
+# Step 04: Logging
+
+**Goal:** app logs in a form that can be shipped and searched, with no card or personal data in them.
+
+For the full design, read [docs/step-04-logging.md](docs/step-04-logging.md).
+
+- **Masked:** `log-masking` gains a `logging` package. App code logs through `PciLogger`, and a `MaskingAppender`, installed automatically, masks everything else, Spring and Kafka client logs included. Card numbers keep their last 4 digits; CVV, passwords and tokens become `***`; emails, phones, IBANs, national IDs, names and addresses are masked too.
+- **Structured:** in Docker, both apps log ECS JSON (`LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs`), one object per line. From the IDE they log plain text.
+- **Shipped:** `filebeat-apps` reads the producer's and consumer's Docker logs and sends each line to the Kafka topic `app-logs`.
+- **New topic:** `POST /api/logs` now publishes to `app-log-messages`, so `app-logs` holds only real app logs.
+
+| App | Logs |
+|-----|------|
+| producer | `Received for <topic>: key=… value=…` (masked), then `Sent to <topic> partition … offset …: key=… value=…` (as stored in Kafka) |
+| consumer | `[group <group>] Key: … \| Value: … \| Partition: … \| Offset: …` (masked) |
+
+```bash
+docker compose up -d --build                       # also starts filebeat-apps
+docker compose logs -f consumer                     # ECS JSON, masked
+docker exec kafka-1 /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka-1:9092 \
+  --topic app-logs --from-beginning --max-messages 3  # the same lines, shipped by Filebeat
+```
+
+Masking settings (`application.yml`, or environment variables like `LOGGING_MASKING_DISABLED_RULES`):
+
+```yaml
+logging.masking:
+  enabled: true
+  disabled-rules: ""          # secrets, personal, expiry, iban, card, tckn, email, phone
+  extra-sensitive-keys: ""    # e.g. otp
+  extra-personal-keys: ""     # e.g. mother_maiden_name
+```
+
+---
 
 # Step 03: Protect card and personal data in Kafka
 

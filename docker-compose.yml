@@ -27,6 +27,12 @@ x-kafka-common: &kafka-common
 x-pci-env: &pci-env
   DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:-+WpfE866Ysy6Lp51Q61eBAcupVyUtI5nnyxwm6avujc=}
 
+# Spring Boot logging in Docker: one ECS JSON object per line (plain text when run from the IDE),
+# so filebeat-apps can ship it to the app-logs topic. service.name comes from spring.application.name.
+x-logging-env: &logging-env
+  LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+  LOGGING_STRUCTURED_ECS_SERVICE_ENVIRONMENT: docker
+
 x-kafka-env: &kafka-env
   # Every node must share the same cluster ID
   CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
@@ -139,7 +145,7 @@ services:
       retries: 10
       start_period: 20s
     environment:
-      <<: *pci-env
+      <<: [*pci-env, *logging-env]
       KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
       SIMULATOR_ENABLED: "false"
     depends_on:
@@ -163,7 +169,7 @@ services:
       retries: 10
       start_period: 20s
     environment:
-      <<: *pci-env
+      <<: [*pci-env, *logging-env]
       KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092,kafka-3:9092
     depends_on:
       kafka-init:
@@ -171,7 +177,26 @@ services:
     networks:
       - service-layer
 
+  # Ships the apps' own log lines (ECS JSON) from the Docker log files to the app-logs topic.
+  # Reads only the producer and consumer containers (see filebeat/filebeat-apps.yml).
+  filebeat-apps:
+    image: elastic/filebeat:9.5.3
+    container_name: filebeat-apps
+    user: root                       # to read the Docker socket and the container log files
+    command: [ "filebeat", "-e", "--strict.perms=false" ]
+    volumes:
+      - ./filebeat/filebeat-apps.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - filebeat-apps-data:/usr/share/filebeat/data   # remembers how far each log file was read
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    networks:
+      - service-layer
+
 volumes:
+  filebeat-apps-data:
   kafka-1-data:
   kafka-2-data:
   kafka-3-data:

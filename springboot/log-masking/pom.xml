@@ -12,7 +12,10 @@
 
     <artifactId>log-masking</artifactId>
     <name>log-masking</name>
-    <description>Finds card and personal data, removes or encrypts it before it reaches Kafka</description>
+    <description>
+        Protects card and personal data: PciKafkaTemplate removes or encrypts it before it reaches Kafka,
+        PciLogger and MaskingAppender mask it in logs. Adding the jar to a Spring Boot app is enough.
+    </description>
 
     <dependencies>
         <!-- Optional: only for PciKafkaTemplate, the interceptor and the auto-configuration.
@@ -34,6 +37,17 @@
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <!-- Log masking: MaskingAppender wraps Logback appenders -->
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+        </dependency>
+        <!-- Optional: only for LogMaskingApplicationListener, which installs masking in Spring Boot apps -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot</artifactId>
+            <optional>true</optional>
         </dependency>
 
         <dependency>

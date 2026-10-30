@@ -39,6 +39,7 @@ COPY --from=extract /extract/extracted/snapshot-dependencies/ ./
 COPY --from=extract /extract/extracted/application/ ./
 USER spring
 
-ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75"
 EXPOSE 8081
-ENTRYPOINT ["java", "-jar", "application.jar"]
+# JVM flags on the command line, not in JAVA_TOOL_OPTIONS: the JVM would announce that on stderr as a
+# plain-text line, and every log line must be JSON for Filebeat
+ENTRYPOINT ["java", "-XX:MaxRAMPercentage=75", "-jar", "application.jar"]

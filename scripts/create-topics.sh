@@ -7,7 +7,8 @@ BOOTSTRAP="${BOOTSTRAP_SERVERS:-kafka-1:9092}"
 
 # name:partitions:replication-factor
 TOPICS=(
-  "app-logs:3:3"
+  "app-logs:3:3"           # the apps' own log lines (ECS JSON), shipped by filebeat-apps
+  "app-log-messages:3:3"   # LogMessage records from the producer's POST /api/logs
   "app-metrics:3:3"
   "app-events:3:3"
 )

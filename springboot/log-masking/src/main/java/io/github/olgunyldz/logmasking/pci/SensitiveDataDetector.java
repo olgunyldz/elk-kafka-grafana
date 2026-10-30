@@ -74,17 +74,17 @@ public class SensitiveDataDetector {
             Map.entry("addressline1", Type.PERSONAL), Map.entry("addressline2", Type.PERSONAL),
             Map.entry("birthdate", Type.PERSONAL), Map.entry("dateofbirth", Type.PERSONAL), Map.entry("dob", Type.PERSONAL));
 
-    static final Pattern IBAN = Pattern.compile("\\b[A-Z]{2}\\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?\\b");
-    static final Pattern TCKN = Pattern.compile("(?<!\\d)[1-9]\\d{10}(?!\\d)");
+    public static final Pattern IBAN = Pattern.compile("\\b[A-Z]{2}\\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?\\b");
+    public static final Pattern TCKN = Pattern.compile("(?<!\\d)[1-9]\\d{10}(?!\\d)");
     /** Group 2 is the date: expiry=12/27, "expDate":"2027-12" */
-    static final Pattern EXPIRY = Pattern.compile(
+    public static final Pattern EXPIRY = Pattern.compile(
             "(?i)([\"']?\\b(?:exp(?:iry|iration)?(?:[_-]?date)?|card[_-]?exp(?:iry|iration)?(?:[_-]?date)?|valid[_ -]?thru)\\b[\"']?\\s*[:=]?\\s*[\"']?)"
                     + "(\\d{1,2}\\s*/\\s*\\d{2,4}|\\d{4}-\\d{2}(?:-\\d{2})?)");
-    static final Pattern EMAIL = Pattern.compile(
+    public static final Pattern EMAIL = Pattern.compile(
             "(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\\.[A-Za-z0-9-]+)*\\.[A-Za-z]{2,}\\b");
-    static final Pattern PHONE_INTERNATIONAL = Pattern.compile("(?<![\\w+])\\+\\d(?:[ ().-]?\\d){7,14}(?!\\d)");
+    public static final Pattern PHONE_INTERNATIONAL = Pattern.compile("(?<![\\w+])\\+\\d(?:[ ().-]?\\d){7,14}(?!\\d)");
     /** Turkish mobile: 5xx xxx xx xx, optionally with a leading 0. */
-    static final Pattern PHONE_TR_MOBILE = Pattern.compile("(?<![\\d*])0?5\\d{2}(?:[ -]?\\d){7}(?!\\d)");
+    public static final Pattern PHONE_TR_MOBILE = Pattern.compile("(?<![\\d*])0?5\\d{2}(?:[ -]?\\d){7}(?!\\d)");
 
     /** A pattern for data inside free text; only {@code group} is encrypted. */
     private record TextDetector(Type type, Pattern pattern, int group, Predicate<String> valid) {

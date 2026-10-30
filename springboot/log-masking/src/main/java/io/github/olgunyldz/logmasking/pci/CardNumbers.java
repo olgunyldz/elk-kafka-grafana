@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
 public final class CardNumbers {
 
     /** 13–19 digits, optionally separated by single spaces or dashes, not part of a longer number. */
-    static final Pattern CANDIDATE = Pattern.compile("(?<![\\d-])\\d(?:[ -]?\\d){12,18}(?![\\d-])");
+    public static final Pattern CANDIDATE = Pattern.compile("(?<![\\d-])\\d(?:[ -]?\\d){12,18}(?![\\d-])");
 
     /** A match in a text: where it is, and the digits without separators. */
     public record Match(int start, int end, String digits) {

@@ -22,7 +22,8 @@ spring:
 app:
   kafka:
     topics:
-      logs: app-logs
+      # LogMessage records from POST /api/logs. app-logs holds the apps' own log lines (Filebeat)
+      logs: app-log-messages
       events: app-events
       metrics: app-metrics
 
@@ -39,3 +40,14 @@ management:
     web:
       exposure:
         include: health,info
+
+logging:
+  # Plain text by default (IDE, mvn spring-boot:run). Docker sets LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs
+  # for one ECS JSON object per line, which Filebeat ships to the app-logs topic.
+  masking:
+    enabled: true
+    disabled-rules: ""
+    extra-sensitive-keys: ""
+    extra-personal-keys: ""     # e.g. mother_maiden_name (values may contain spaces)
+  level:
+    org.apache.kafka: warn

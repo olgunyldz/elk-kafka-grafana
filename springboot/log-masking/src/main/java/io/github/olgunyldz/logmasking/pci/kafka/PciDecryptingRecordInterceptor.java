@@ -1,10 +1,10 @@
 package io.github.olgunyldz.logmasking.pci.kafka;
 
+import io.github.olgunyldz.logmasking.logging.PciLogger;
 import io.github.olgunyldz.logmasking.pci.SensitiveDataEncryption;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.kafka.listener.RecordInterceptor;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -23,7 +23,7 @@ import java.util.Set;
  */
 public class PciDecryptingRecordInterceptor implements RecordInterceptor<Object, Object> {
 
-    private static final Logger log = LoggerFactory.getLogger(PciDecryptingRecordInterceptor.class);
+    private static final Logger log = PciLogger.getLogger(PciDecryptingRecordInterceptor.class);
 
     private final SensitiveDataEncryption encryption;
     private final JsonMapper jsonMapper;
