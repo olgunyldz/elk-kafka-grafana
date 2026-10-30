@@ -10,6 +10,35 @@ A log and metrics pipeline built one step at a time. Each step is a branch.
 | 04 | `step-04-logging` | App logs as masked ECS JSON, shipped to Kafka |
 | 05 | `step-05-elk` | Kafka messages and all logs searchable in Kibana |
 | 06 | `step-06-mask-logging` | No sensitive data in any log, at three layers |
+| 07 | `step-07-monitoring` | Metrics and health of the broker, apps and containers in Grafana |
+
+# Step 07: Monitoring
+
+**Goal:** metrics and health of the broker, the apps and every container, in Grafana.
+
+For the full design, read [docs/step-07-monitoring.md](docs/step-07-monitoring.md).
+
+Open **Grafana at http://localhost:3000** (no login). Prometheus is at http://localhost:9090.
+
+| Source | Metrics |
+|--------|---------|
+| `kafka-1` with the JMX exporter agent (`:7071`) | Traffic per topic, partitions, controller, request time, heap |
+| `kafka-exporter` | Lag of every consumer group, ours and Logstash's |
+| `producer`, `consumer` (`/actuator/prometheus`) | Kafka client, `KafkaTemplate`, `@KafkaListener`, HTTP and JVM metrics |
+| `blackbox-exporter` | Up/down of every service (HTTP health URL or TCP port) |
+| `cadvisor` | CPU, memory and network per container |
+
+| Dashboard | Answers |
+|-----------|---------|
+| **Kafka** (home) | Is the cluster healthy, and is everyone keeping up? |
+| **Kafka Producer** | Throughput, latency, batching, errors, back-pressure |
+| **Kafka Consumer** | Lag, poll loop, processing time, rebalances, commits |
+| **Stack Health** | Is every service up? |
+| **Containers** | Which container uses how much CPU and memory? |
+
+Try it: `docker compose stop consumer`, send a few messages from http://localhost:8081, and watch the lag rise on *Kafka* and the consumer turn red on *Stack Health*. Then `docker compose start consumer` and watch it catch up.
+
+---
 
 # Step 06: Masking in three layers
 

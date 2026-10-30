@@ -14,7 +14,7 @@ public class MetricListener {
 
     private static final Logger log = PciLogger.getLogger(MetricListener.class);
 
-    @KafkaListener(topics = "${app.kafka.topics.metrics}", groupId = "metric-consumer", concurrency = "3")
+    @KafkaListener(id = "metric-listener", topics = "${app.kafka.topics.metrics}", groupId = "metric-consumer", concurrency = "3")
     void onMetric(ConsumerRecord<String, MetricMessage> record, @Header(KafkaHeaders.GROUP_ID) String groupId) {
         var metric = record.value();
         log.info("[group {}] Key: {} | Value: {}={} {} | Partition: {} | Offset: {}",

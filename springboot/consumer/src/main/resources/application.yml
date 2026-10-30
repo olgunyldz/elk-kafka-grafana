@@ -39,7 +39,12 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        # prometheus: scraped by Prometheus every 5 s (monitoring/prometheus.yml)
+        include: health,info,prometheus
+  metrics:
+    tags:
+      # Every metric carries application="producer" / "consumer": the Grafana dashboards filter on it
+      application: ${spring.application.name}
 
 logging:
   # Plain text by default (IDE, mvn spring-boot:run). Docker sets LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs

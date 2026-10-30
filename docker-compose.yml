@@ -1,15 +1,17 @@
-# Kafka (1 node, KRaft) + Spring Boot apps + ELK
+# Kafka (1 node, KRaft) + Spring Boot apps + ELK + Prometheus/Grafana
 #
 # Kafka inside Docker: kafka-1:9092 · from the host: localhost:19092
 # Web UIs: kafka-ui http://localhost:8080 · producer http://localhost:8081 · Kibana http://localhost:5601
+#          Grafana http://localhost:3000 · Prometheus http://localhost:9090
 #
 # Networks, one per layer:
 #   data-layer     kafka-1, kafka-init, elasticsearch, + logstash, kibana, kibana-setup, filebeat
 #                  (internal: no route to the outside world, no published ports for its-only members)
-#   service-layer  kafka-1, producer, consumer, kafka-ui, filebeat-apps, + logstash, kibana
-# Containers that bridge the layers (kafka-1, logstash, kibana) join both.
+#   service-layer  kafka-1, producer, consumer, kafka-ui, filebeat-apps, kafka-exporter, grafana,
+#                  + logstash, kibana, prometheus, blackbox-exporter
+# Containers that bridge the layers (kafka-1, logstash, kibana, prometheus, blackbox-exporter) join both.
 #
-# Memory: one broker and capped JVM heaps keep the whole stack around 4-5 GB.
+# Memory: one broker and capped JVM heaps keep the whole stack around 5-6 GB.
 
 # Key for card and personal data in Kafka messages (AES-256, base64).
 # This is the PUBLIC lab key from the repo: anyone with it can decrypt. Override it with
@@ -32,6 +34,23 @@ x-filebeat-common: &filebeat-common
 services:
   # ---- Kafka -------------------------------------------------------------------------------
 
+  # Downloads the Prometheus JMX exporter agent once into the jmx-agent volume, for the broker to load
+  jmx-exporter-download:
+    image: curlimages/curl:8.11.1
+    container_name: jmx-exporter-download
+    user: root
+    entrypoint: ["sh", "-c"]
+    command:
+      - >-
+        test -s /jmx/jmx_prometheus_javaagent.jar ||
+        curl -fsSL -o /jmx/jmx_prometheus_javaagent.jar
+        https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/1.0.1/jmx_prometheus_javaagent-1.0.1.jar
+    volumes:
+      - jmx-agent:/jmx
+    restart: "no"
+    networks:
+      - service-layer     # needs the internet
+
   # A single node that is both broker and controller. With one broker every topic has
   # replication factor 1: no failover, but a fraction of the memory of three brokers.
   kafka-1:
@@ -40,6 +59,16 @@ services:
     hostname: kafka-1
     ports:
       - "19092:9094"
+    # Starts the broker with the Prometheus JMX exporter agent (metrics on :7071/metrics).
+    # KAFKA_OPTS is set only for the broker process, not as a container env var: otherwise every
+    # kafka-*.sh tool run in the container (healthcheck, docker exec) would also load the agent and
+    # fail because port 7071 is already taken by the broker.
+    command:
+      - bash
+      - -c
+      - >-
+        export KAFKA_OPTS="-javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent.jar=7071:/opt/jmx-exporter-config/kafka-jmx.yml"
+        && exec /etc/kafka/docker/run
     environment:
       CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
       KAFKA_NODE_ID: 1
@@ -64,6 +93,11 @@ services:
       KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
     volumes:
       - kafka-1-data:/var/lib/kafka/data
+      - jmx-agent:/opt/jmx-exporter:ro
+      - ./monitoring/kafka-jmx.yml:/opt/jmx-exporter-config/kafka-jmx.yml:ro
+    depends_on:
+      jmx-exporter-download:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
       interval: 10s
@@ -277,7 +311,109 @@ services:
     networks:
       - data-layer
 
+  # ---- Monitoring: Prometheus and Grafana --------------------------------------------------
+  #   kafka-1 (JMX agent :7071) ┐
+  #   kafka-exporter (lag)      ├─> prometheus (every 5 s) ──> grafana http://localhost:3000
+  #   producer, consumer        │
+  #   blackbox-exporter (health)┤
+  #   cadvisor (CPU, memory     ┘
+  #     per container)
+
+  # Consumer group offsets and lag, read from the broker
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.8.0
+    container_name: kafka-exporter
+    command: ["--kafka.server=kafka-1:9092"]
+    restart: on-failure
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+    networks:
+      - service-layer
+
+  # Probes each service's health URL or TCP port for Prometheus
+  # (modules in monitoring/blackbox.yml, targets in monitoring/prometheus.yml)
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.25.0
+    container_name: blackbox-exporter
+    command: ["--config.file=/etc/blackbox/blackbox.yml"]
+    volumes:
+      - ./monitoring/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    networks:
+      - data-layer        # to probe Elasticsearch, Filebeat
+      - service-layer     # to probe the apps, Kafka, Kibana, Grafana
+
+  # CPU, memory, network and disk per container, read from Docker and the kernel's cgroups.
+  # Needs read access to the host's container data (the mounts below) and runs privileged for it.
+  # Version: 0.54 or newer is needed for Docker Desktop's containerd image store (older versions fail
+  # with "failed to identify the read-write layer ID" and see no containers); 0.56.0's image doesn't start.
+  cadvisor:
+    image: ghcr.io/google/cadvisor:0.55.1
+    container_name: cadvisor
+    privileged: true
+    devices:
+      - /dev/kmsg
+    command:
+      - --docker_only=true                 # only containers, not every system process
+      - --housekeeping_interval=10s
+      # Skip metrics the dashboards don't use. disk and diskIO: scanning disk usage made cAdvisor itself
+      # use over 500 MB, and Docker Desktop reports no disk I/O per container anyway
+      - --disable_metrics=advtcp,cpu_topology,cpuset,disk,diskIO,hugetlb,memory_numa,percpu,process,referenced_memory,resctrl,sched,tcp,udp
+      - --store_container_labels=false
+      - --whitelisted_container_labels=com.docker.compose.project,com.docker.compose.service
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      # On Docker Desktop /var/run doesn't carry the Docker socket: without it cAdvisor can't
+      # name the containers and reports only the whole machine
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - service-layer
+
+  # Scrapes the broker's JMX agent, kafka-exporter, the apps, cAdvisor and the blackbox probes every 5 s
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    extra_hosts:
+      # Lets Prometheus reach the apps when you run them on your machine instead of in Docker
+      - "host.docker.internal:host-gateway"
+    networks:
+      - data-layer        # to reach blackbox-exporter there as well
+      - service-layer     # to reach the broker, the apps, kafka-exporter; and publish port 9090
+
+  # Grafana at http://localhost:3000 (no login): the Prometheus data source and the dashboards
+  # are provisioned from monitoring/grafana
+  grafana:
+    image: grafana/grafana:11.3.1
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/kafka.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    networks:
+      - service-layer
+
 volumes:
+  jmx-agent:
+  prometheus-data:
   kafka-1-data:
   es-data:
   filebeat-data:

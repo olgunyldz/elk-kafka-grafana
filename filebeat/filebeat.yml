@@ -1,6 +1,7 @@
 # Filebeat for every container except the microservices: straight to Elasticsearch, without Kafka.
-#   kafka-1, kafka-init, kafka-ui                          --> infra-logs-YYYY.MM.dd  ("Infra logs" data view)
+#   kafka-1, kafka-init, kafka-ui, monitoring containers   --> infra-logs-YYYY.MM.dd  ("Infra logs" data view)
 #   elasticsearch, logstash, kibana, kibana-setup          --> elk-logs-YYYY.MM.dd    ("All logs" adds these)
+#   (monitoring: kafka-exporter, blackbox-exporter, cadvisor, prometheus, grafana, jmx-exporter-download)
 # The broker's logs must not depend on Kafka being healthy, so this path skips Kafka.
 # Left out: the microservices (their logs go through Kafka, see filebeat-apps.yml) and the Filebeats themselves.
 
@@ -102,7 +103,7 @@ processors:
           replacement: '*********$1'
 
 # Daily indices, next to app-logs-YYYY.MM.dd, instead of Filebeat's default filebeat-<version> data stream.
-# The Kafka infrastructure goes to infra-logs-*, everything else (the ELK stack) to elk-logs-*.
+# Kafka and monitoring go to infra-logs-*, everything else (the ELK stack) to elk-logs-*.
 output.elasticsearch:
   hosts: [ "http://elasticsearch:9200" ]
   index: "elk-logs-%{+yyyy.MM.dd}"
@@ -112,6 +113,12 @@ output.elasticsearch:
         - equals.container.name: kafka-1
         - equals.container.name: kafka-init
         - equals.container.name: kafka-ui
+        - equals.container.name: kafka-exporter
+        - equals.container.name: blackbox-exporter
+        - equals.container.name: prometheus
+        - equals.container.name: grafana
+        - equals.container.name: jmx-exporter-download
+        - equals.container.name: cadvisor
 
 # Plain indices: no Filebeat template or ILM policy; Elasticsearch maps the fields dynamically
 setup.template.enabled: false

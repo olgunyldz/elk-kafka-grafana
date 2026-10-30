@@ -15,7 +15,7 @@ public class EventListener {
     private static final Logger log = PciLogger.getLogger(EventListener.class);
 
     // A separate group: it tracks its own offsets, independent of log-consumer
-    @KafkaListener(topics = "${app.kafka.topics.events}", groupId = "event-consumer", concurrency = "3")
+    @KafkaListener(id = "event-listener", topics = "${app.kafka.topics.events}", groupId = "event-consumer", concurrency = "3")
     void onEvent(ConsumerRecord<String, AppEvent> record, @Header(KafkaHeaders.GROUP_ID) String groupId) {
         var event = record.value();
         log.info("[group {}] Key: {} | Value: {} {} | Partition: {} | Offset: {}",

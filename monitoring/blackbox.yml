@@ -1,0 +1,17 @@
+# Blackbox exporter probes, used by Prometheus for the "Stack Health" dashboard.
+# Prometheus calls blackbox-exporter:9115/probe?module=<module>&target=<target>;
+# probe_success is 1 when the check passes.
+modules:
+  # The HTTP health endpoint answers with a 2xx status (Spring Boot answers 503 when the app is DOWN)
+  http_2xx:
+    prober: http
+    timeout: 4s
+    http:
+      preferred_ip_protocol: ip4
+
+  # The port accepts TCP connections (the Kafka listener)
+  tcp_connect:
+    prober: tcp
+    timeout: 4s
+    tcp:
+      preferred_ip_protocol: ip4

@@ -1,0 +1,44 @@
+# Prometheus JMX exporter rules for the Kafka brokers.
+# Only MBeans matching a rule are exported (plus the exporter's built-in JVM metrics).
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+rules:
+  # Per-topic traffic, e.g. kafka_server_brokertopicmetrics_messagesinpersec_total{topic="app-events"}
+  - pattern: kafka.server<type=(BrokerTopicMetrics), name=(\w+), topic=(.+)><>Count
+    name: kafka_server_$1_$2_total
+    type: COUNTER
+    labels:
+      topic: "$3"
+  # The same counters for all topics together (no topic label)
+  - pattern: kafka.server<type=(BrokerTopicMetrics), name=(\w+)><>Count
+    name: kafka_server_$1_$2_total
+    type: COUNTER
+
+  # Replica state: UnderReplicatedPartitions, PartitionCount, LeaderCount, ...
+  - pattern: kafka.server<type=(ReplicaManager), name=(\w+)><>Value
+    name: kafka_server_$1_$2
+    type: GAUGE
+  # ISR shrinks/expands: a replica fell behind or caught up again
+  - pattern: kafka.server<type=(ReplicaManager), name=(\w+)><>Count
+    name: kafka_server_$1_$2_total
+    type: COUNTER
+
+  # KRaft controller: ActiveControllerCount, OfflinePartitionsCount, GlobalTopicCount, ...
+  - pattern: kafka.controller<type=(KafkaController), name=(\w+)><>Value
+    name: kafka_controller_$1_$2
+    type: GAUGE
+
+  # Time to handle a request, in ms: mean and 99th percentile
+  - pattern: kafka.network<type=RequestMetrics, name=TotalTimeMs, request=(Produce|FetchConsumer|FetchFollower)><>(Mean|99thPercentile)
+    name: kafka_network_requestmetrics_totaltimems
+    type: GAUGE
+    labels:
+      request: "$1"
+      stat: "$2"
+  # Number of requests, by request type
+  - pattern: kafka.network<type=RequestMetrics, name=RequestsPerSec, request=(Produce|FetchConsumer|FetchFollower|Metadata), version=(\d+)><>Count
+    name: kafka_network_requestmetrics_requests_total
+    type: COUNTER
+    labels:
+      request: "$1"
+      version: "$2"

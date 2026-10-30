@@ -1,0 +1,93 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  # The broker: JMX exporter agent inside the Kafka container (rules in monitoring/kafka-jmx.yml)
+  - job_name: kafka-broker
+    static_configs:
+      - targets: [ "kafka-1:7071" ]
+    relabel_configs:
+      # instance="kafka-1" instead of "kafka-1:7071"
+      - source_labels: [ __address__ ]
+        regex: "([^:]+):\\d+"
+        target_label: instance
+
+  # Spring Boot apps (Kafka client, Spring Kafka, HTTP and JVM metrics from Actuator)
+  - job_name: kafka-apps
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: [ "producer:8081", "consumer:8082" ]
+        labels:
+          source: docker
+      # The same apps started on your machine (IDE / mvn spring-boot:run). Off by default: the
+      # containers publish ports 8081 and 8082 too, so these would scrape the containers a second
+      # time and double every total. Uncomment after `docker compose stop producer consumer`.
+      # - targets: [ "host.docker.internal:8081", "host.docker.internal:8082" ]
+      #   labels:
+      #     source: local
+
+  # Health probes for every long-running service in docker-compose, done by blackbox-exporter
+  # (monitoring/blackbox.yml). Each target gets a "service" label for the Stack Health dashboard.
+  - job_name: health-http
+    metrics_path: /probe
+    params:
+      module: [ http_2xx ]
+    static_configs:
+      - targets: [ "http://producer:8081/actuator/health" ]
+        labels: { service: producer }
+      - targets: [ "http://consumer:8082/actuator/health" ]
+        labels: { service: consumer }
+      - targets: [ "http://kafka-ui:8080/" ]
+        labels: { service: kafka-ui }
+      - targets: [ "http://kafka-exporter:9308/metrics" ]
+        labels: { service: kafka-exporter }
+      - targets: [ "http://prometheus:9090/-/healthy" ]
+        labels: { service: prometheus }
+      - targets: [ "http://grafana:3000/api/health" ]
+        labels: { service: grafana }
+      - targets: [ "http://elasticsearch:9200/_cluster/health" ]
+        labels: { service: elasticsearch }
+      - targets: [ "http://kibana:5601/api/status" ]
+        labels: { service: kibana }
+      - targets: [ "http://logstash:9600/" ]
+        labels: { service: logstash }
+      - targets: [ "http://filebeat:5066/" ]
+        labels: { service: filebeat }
+      - targets: [ "http://filebeat-apps:5066/" ]
+        labels: { service: filebeat-apps }
+      - targets: [ "http://cadvisor:8080/healthz" ]
+        labels: { service: cadvisor }
+    relabel_configs: &blackbox-relabel
+      # Send the target to blackbox-exporter as ?target=..., and keep it as the instance label
+      - source_labels: [ __address__ ]
+        target_label: __param_target
+      - source_labels: [ __param_target ]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  - job_name: health-tcp
+    metrics_path: /probe
+    params:
+      module: [ tcp_connect ]
+    static_configs:
+      - targets: [ "kafka-1:9092" ]
+        labels: { service: kafka-1 }
+    relabel_configs: *blackbox-relabel
+
+  # Consumer group offsets and lag, read from the broker by kafka-exporter
+  # (our three groups and both Logstash groups)
+  - job_name: kafka-exporter
+    static_configs:
+      - targets: [ "kafka-exporter:9308" ]
+
+  # CPU, memory, network and disk per container (only this Compose project's containers are kept)
+  - job_name: cadvisor
+    scrape_interval: 10s                 # cAdvisor refreshes every 10 s (housekeeping_interval)
+    static_configs:
+      - targets: [ "cadvisor:8080" ]
+    metric_relabel_configs:
+      # Keep this project's containers, plus machine_* (the memory and CPUs Docker has in total)
+      - source_labels: [ __name__, container_label_com_docker_compose_project ]
+        regex: "machine_.*;.*|.*;elk-kafka-grafana"
+        action: keep
