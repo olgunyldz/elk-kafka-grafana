@@ -1,0 +1,61 @@
+# ---- Build output (Maven) ----
+target/
+!.mvn/wrapper/maven-wrapper.jar
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+
+# ---- Logs and temp files ----
+*.log
+logs/
+*.tmp
+*.bak
+*.swp
+*~
+
+# ---- Secrets and local config ----
+# Passwords for Elasticsearch, Grafana, etc. go in .env (copy .env.example)
+.env
+.env.*
+!.env.example
+docker-compose.override.yml
+application-local.yml
+application-local.properties
+
+# ---- IDEs ----
+# IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+# Eclipse / Spring Tools
+.classpath
+.project
+.settings/
+.factorypath
+.apt_generated/
+.springBeans
+.sts4-cache/
+bin/
+# NetBeans
+nbproject/private/
+nbbuild/
+nbdist/
+.nb-gradle/
+# VS Code
+.vscode/
+# Tool-generated files from the VS Code Java upgrade extension
+.github/modernize/
+
+# ---- Claude Code (personal settings only) ----
+.claude/settings.local.json
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,59 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: producer
+  kafka:
+    # Host-side listener of the broker. Inside Docker: kafka-1:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
+      # Wait for all in-sync replicas before a send counts as done. With the lab's single broker that's
+      # one copy; on a real cluster with replication factor 3 and min.insync.replicas=2, at least two.
+      acks: all
+      properties:
+        enable.idempotence: true
+        linger.ms: 5
+        # Short type names in the __TypeId__ header, so the consumer doesn't need our class names
+        spring.json.type.mapping: "log:io.github.olgunyldz.producer.model.LogMessage,event:io.github.olgunyldz.producer.model.AppEvent,metric:io.github.olgunyldz.producer.model.MetricMessage"
+
+app:
+  kafka:
+    topics:
+      # LogMessage records from POST /api/logs. app-logs holds the apps' own log lines (Filebeat)
+      logs: app-log-messages
+      events: app-events
+      metrics: app-metrics
+  simulator:
+    enabled: ${SIMULATOR_ENABLED:false}
+    interval: 1s
+
+pci:
+  # AES-256 key (base64, 32 bytes) for card and personal data. The default is the PUBLIC lab key
+  # from the repo: anyone can decrypt with it. Real environments must set DATA_ENCRYPTION_KEY.
+  data-encryption-key: ${DATA_ENCRYPTION_KEY:+WpfE866Ysy6Lp51Q61eBAcupVyUtI5nnyxwm6avujc=}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # prometheus: scraped by Prometheus every 5 s (monitoring/prometheus.yml)
+        include: health,info,prometheus
+  metrics:
+    tags:
+      # Every metric carries application="producer" / "consumer": the Grafana dashboards filter on it
+      application: ${spring.application.name}
+
+logging:
+  # Plain text by default (IDE, mvn spring-boot:run). Docker sets LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs
+  # for one ECS JSON object per line, which Filebeat ships to the app-logs topic.
+  # Masking (log-masking library) is on by default; these are its settings:
+  masking:
+    enabled: true
+    disabled-rules: ""          # e.g. phone,email
+    extra-sensitive-keys: ""    # e.g. otp,customer_ref
+    extra-personal-keys: ""     # e.g. mother_maiden_name (values may contain spaces)
+  level:
+    org.apache.kafka: warn

@@ -1,0 +1,6 @@
+# Keep the build context small: Docker builds the jar itself
+**/target/
+**/*.log
+.idea/
+.vscode/
+*.iml

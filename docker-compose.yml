@@ -1,0 +1,427 @@
+# Kafka (1 node, KRaft) + Spring Boot apps + ELK + Prometheus/Grafana
+#
+# Kafka inside Docker: kafka-1:9092 · from the host: localhost:19092
+# Web UIs: kafka-ui http://localhost:8080 · producer http://localhost:8081 · Kibana http://localhost:5601
+#          Grafana http://localhost:3000 · Prometheus http://localhost:9090
+#
+# Networks, one per layer:
+#   data-layer     kafka-1, kafka-init, elasticsearch, + logstash, kibana, kibana-setup, filebeat
+#                  (internal: no route to the outside world, no published ports for its-only members)
+#   service-layer  kafka-1, producer, consumer, kafka-ui, filebeat-apps, kafka-exporter, grafana,
+#                  + logstash, kibana, prometheus, blackbox-exporter
+# Containers that bridge the layers (kafka-1, logstash, kibana, prometheus, blackbox-exporter) join both.
+#
+# Memory: one broker and capped JVM heaps keep the whole stack around 5-6 GB.
+
+# Key for card and personal data in Kafka messages (AES-256, base64).
+# This is the PUBLIC lab key from the repo: anyone with it can decrypt. Override it with
+# DATA_ENCRYPTION_KEY in your shell or a .env file (git-ignored) for anything real.
+x-pci-env: &pci-env
+  DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:-+WpfE866Ysy6Lp51Q61eBAcupVyUtI5nnyxwm6avujc=}
+
+# Spring Boot logging in Docker: one ECS JSON object per line (plain text when run from the IDE),
+# so filebeat-apps can ship it to the app-logs topic. service.name comes from spring.application.name.
+x-logging-env: &logging-env
+  LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+  LOGGING_STRUCTURED_ECS_SERVICE_ENVIRONMENT: docker
+
+# Filebeat reads the Docker log files of other containers
+x-filebeat-common: &filebeat-common
+  image: elastic/filebeat:9.5.3
+  user: root                       # to read the Docker socket and the container log files
+  command: [ "filebeat", "-e", "--strict.perms=false" ]
+
+services:
+  # ---- Kafka -------------------------------------------------------------------------------
+
+  # Downloads the Prometheus JMX exporter agent once into the jmx-agent volume, for the broker to load
+  jmx-exporter-download:
+    image: curlimages/curl:8.11.1
+    container_name: jmx-exporter-download
+    user: root
+    entrypoint: ["sh", "-c"]
+    command:
+      - >-
+        test -s /jmx/jmx_prometheus_javaagent.jar ||
+        curl -fsSL -o /jmx/jmx_prometheus_javaagent.jar
+        https://repo1.maven.org/maven2/io/prometheus/jmx/jmx_prometheus_javaagent/1.0.1/jmx_prometheus_javaagent-1.0.1.jar
+    volumes:
+      - jmx-agent:/jmx
+    restart: "no"
+    networks:
+      - service-layer     # needs the internet
+
+  # A single node that is both broker and controller. With one broker every topic has
+  # replication factor 1: no failover, but a fraction of the memory of three brokers.
+  kafka-1:
+    image: apache/kafka:4.0.0
+    container_name: kafka-1
+    hostname: kafka-1
+    ports:
+      - "19092:9094"
+    # Starts the broker with the Prometheus JMX exporter agent (metrics on :7071/metrics).
+    # KAFKA_OPTS is set only for the broker process, not as a container env var: otherwise every
+    # kafka-*.sh tool run in the container (healthcheck, docker exec) would also load the agent and
+    # fail because port 7071 is already taken by the broker.
+    command:
+      - bash
+      - -c
+      - >-
+        export KAFKA_OPTS="-javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent.jar=7071:/opt/jmx-exporter-config/kafka-jmx.yml"
+        && exec /etc/kafka/docker/run
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-1:9092,EXTERNAL://localhost:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      # One broker: every replication factor is 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_NUM_PARTITIONS: 3
+      # Topics are created explicitly by kafka-init
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
+    volumes:
+      - kafka-1-data:/var/lib/kafka/data
+      - jmx-agent:/opt/jmx-exporter:ro
+      - ./monitoring/kafka-jmx.yml:/opt/jmx-exporter-config/kafka-jmx.yml:ro
+    depends_on:
+      jmx-exporter-download:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+    networks:
+      - data-layer
+      - service-layer
+
+  # One-shot container: creates the topics, then exits
+  kafka-init:
+    image: apache/kafka:4.0.0
+    container_name: kafka-init
+    entrypoint: ["/bin/bash", "/scripts/create-topics.sh"]
+    environment:
+      BOOTSTRAP_SERVERS: kafka-1:9092
+    volumes:
+      - ./scripts:/scripts:ro
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - data-layer
+
+  kafka-ui:
+    image: kafbat/kafka-ui:v1.2.0
+    container_name: kafka-ui
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-1:9092
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    networks:
+      - service-layer
+
+  # ---- Spring Boot apps (step 02). Built from springboot/, see each module's Dockerfile -----
+
+  producer:
+    build:
+      context: ./springboot
+      dockerfile: producer/Dockerfile
+    image: elk-kafka-grafana/producer
+    container_name: producer
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8081/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    environment:
+      <<: [*pci-env, *logging-env]
+      KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092
+      SIMULATOR_ENABLED: "false"
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    networks:
+      - service-layer
+
+  consumer:
+    build:
+      context: ./springboot
+      dockerfile: consumer/Dockerfile
+    image: elk-kafka-grafana/consumer
+    container_name: consumer
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8082/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    environment:
+      <<: [*pci-env, *logging-env]
+      KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    networks:
+      - service-layer
+
+  # ---- ELK: Elasticsearch, Logstash, Kibana, plus Filebeat ---------------------------------
+  #   Kafka messages: app-events, app-log-messages, app-metrics --> logstash --> kafka-messages-<topic>
+  #   App logs:       producer, consumer --> filebeat-apps --> app-logs --> logstash --> app-logs-YYYY.MM.dd
+  #   Infra logs:     kafka-1, kafka-init, kafka-ui --> filebeat --> infra-logs-YYYY.MM.dd (no Kafka)
+#   ELK logs:       elasticsearch, logstash, kibana, kibana-setup --> filebeat --> elk-logs-YYYY.MM.dd
+# Kibana data views: App logs (microservices), Infra logs, All logs (everything but the microservices), Kafka messages
+  # Search everything in Kibana: http://localhost:5601
+
+  # Single node, security off (like the rest of the lab). Only on the internal data-layer:
+  # no published port. Query it with: docker exec elasticsearch curl -s localhost:9200/_cat/indices
+  elasticsearch:
+    image: elasticsearch:9.5.3
+    container_name: elasticsearch
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms768m -Xmx768m
+      # No mmap: avoids the vm.max_map_count=262144 requirement on Docker Desktop
+      node.store.allow_mmap: "false"
+      # Don't switch indices to read-only when the disk is nearly full
+      cluster.routing.allocation.disk.threshold_enabled: "false"
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs 'http://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s' > /dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+    networks:
+      - data-layer
+
+  kibana:
+    image: kibana:9.5.3
+    container_name: kibana
+    ports:
+      - "5601:5601"
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      NODE_OPTIONS: --max-old-space-size=768
+      # No usage-collection banner, and no "data is not secure" warning: security is off on purpose in this lab
+      TELEMETRY_OPTIN: "false"
+      TELEMETRY_ALLOWCHANGINGOPTINSTATUS: "false"
+      SECURITY_SHOWINSECURECLUSTERWARNING: "false"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:5601/api/status > /dev/null"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+    networks:
+      - data-layer        # to reach Elasticsearch
+      - service-layer     # to publish port 5601
+
+  # Creates the Kibana data views, then exits (scripts/kibana-setup.sh)
+  kibana-setup:
+    image: curlimages/curl:8.11.1
+    container_name: kibana-setup
+    entrypoint: ["sh", "/scripts/kibana-setup.sh"]
+    volumes:
+      - ./scripts:/scripts:ro
+    restart: "no"
+    depends_on:
+      kibana:
+        condition: service_healthy
+    networks:
+      - data-layer
+
+  # Kafka -> Elasticsearch, two pipelines (logstash/pipelines.yml), each its own consumer group:
+  #   kafka-messages (group logstash):          app-events, app-log-messages, app-metrics
+  #   app-logs       (group logstash-app-logs): app-logs
+  logstash:
+    image: logstash:9.5.3
+    container_name: logstash
+    environment:
+      LS_JAVA_OPTS: -Xms512m -Xmx512m
+      XPACK_MONITORING_ENABLED: "false"
+    volumes:
+      - ./logstash/pipelines.yml:/usr/share/logstash/config/pipelines.yml:ro
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    networks:
+      - data-layer        # to reach Elasticsearch
+      - service-layer     # to reach Kafka
+
+  # The apps' own log lines (ECS JSON) from the Docker log files to the app-logs topic.
+  # Reads only the producer and consumer containers (filebeat/filebeat-apps.yml).
+  filebeat-apps:
+    <<: *filebeat-common
+    container_name: filebeat-apps
+    volumes:
+      - ./filebeat/filebeat-apps.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - filebeat-apps-data:/usr/share/filebeat/data   # remembers how far each log file was read
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    networks:
+      - service-layer
+
+  # Every container's logs except the microservices', straight to Elasticsearch without Kafka, so
+  # the broker's logs arrive even when Kafka is down: infra-logs-* and elk-logs-* (filebeat/filebeat.yml)
+  filebeat:
+    <<: *filebeat-common
+    container_name: filebeat
+    volumes:
+      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - filebeat-data:/usr/share/filebeat/data
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    networks:
+      - data-layer
+
+  # ---- Monitoring: Prometheus and Grafana --------------------------------------------------
+  #   kafka-1 (JMX agent :7071) ┐
+  #   kafka-exporter (lag)      ├─> prometheus (every 5 s) ──> grafana http://localhost:3000
+  #   producer, consumer        │
+  #   blackbox-exporter (health)┤
+  #   cadvisor (CPU, memory     ┘
+  #     per container)
+
+  # Consumer group offsets and lag, read from the broker
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.8.0
+    container_name: kafka-exporter
+    command: ["--kafka.server=kafka-1:9092"]
+    restart: on-failure
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+    networks:
+      - service-layer
+
+  # Probes each service's health URL or TCP port for Prometheus
+  # (modules in monitoring/blackbox.yml, targets in monitoring/prometheus.yml)
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.25.0
+    container_name: blackbox-exporter
+    command: ["--config.file=/etc/blackbox/blackbox.yml"]
+    volumes:
+      - ./monitoring/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    networks:
+      - data-layer        # to probe Elasticsearch, Filebeat
+      - service-layer     # to probe the apps, Kafka, Kibana, Grafana
+
+  # CPU, memory, network and disk per container, read from Docker and the kernel's cgroups.
+  # Needs read access to the host's container data (the mounts below) and runs privileged for it.
+  # Version: 0.54 or newer is needed for Docker Desktop's containerd image store (older versions fail
+  # with "failed to identify the read-write layer ID" and see no containers); 0.56.0's image doesn't start.
+  cadvisor:
+    image: ghcr.io/google/cadvisor:0.55.1
+    container_name: cadvisor
+    privileged: true
+    devices:
+      - /dev/kmsg
+    command:
+      - --docker_only=true                 # only containers, not every system process
+      - --housekeeping_interval=10s
+      # Skip metrics the dashboards don't use. disk and diskIO: scanning disk usage made cAdvisor itself
+      # use over 500 MB, and Docker Desktop reports no disk I/O per container anyway
+      - --disable_metrics=advtcp,cpu_topology,cpuset,disk,diskIO,hugetlb,memory_numa,percpu,process,referenced_memory,resctrl,sched,tcp,udp
+      - --store_container_labels=false
+      - --whitelisted_container_labels=com.docker.compose.project,com.docker.compose.service
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      # On Docker Desktop /var/run doesn't carry the Docker socket: without it cAdvisor can't
+      # name the containers and reports only the whole machine
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - service-layer
+
+  # Scrapes the broker's JMX agent, kafka-exporter, the apps, cAdvisor and the blackbox probes every 5 s
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    extra_hosts:
+      # Lets Prometheus reach the apps when you run them on your machine instead of in Docker
+      - "host.docker.internal:host-gateway"
+    networks:
+      - data-layer        # to reach blackbox-exporter there as well
+      - service-layer     # to reach the broker, the apps, kafka-exporter; and publish port 9090
+
+  # Grafana at http://localhost:3000 (no login): the Prometheus data source and the dashboards
+  # are provisioned from monitoring/grafana
+  grafana:
+    image: grafana/grafana:11.3.1
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/kafka.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    networks:
+      - service-layer
+
+volumes:
+  jmx-agent:
+  prometheus-data:
+  kafka-1-data:
+  es-data:
+  filebeat-data:
+  filebeat-apps-data:
+
+networks:
+  data-layer:
+    name: data-layer
+    internal: true
+  service-layer:
+    name: service-layer

@@ -1,0 +1,11 @@
+# Two independent Logstash pipelines, each with its own Kafka consumer group, filters and output.
+# (Without this file Logstash would merge every .conf in the pipeline folder into ONE pipeline,
+# and events of both inputs would go through both outputs.)
+
+# Kafka messages of app-events, app-log-messages, app-metrics -> kafka-messages-<topic>   (group logstash)
+- pipeline.id: kafka-messages
+  path.config: "/usr/share/logstash/pipeline/kafka-messages.conf"
+
+# Logs of the Spring Boot apps from the topic app-logs -> app-logs-YYYY.MM.dd   (group logstash-app-logs)
+- pipeline.id: app-logs
+  path.config: "/usr/share/logstash/pipeline/app-logs.conf"
