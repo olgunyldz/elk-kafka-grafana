@@ -1,0 +1,78 @@
+# Filebeat for every container except the microservices: straight to Elasticsearch, without Kafka.
+#   kafka-1, kafka-init, kafka-ui                          --> infra-logs-YYYY.MM.dd  ("Infra logs" data view)
+#   elasticsearch, logstash, kibana, kibana-setup          --> elk-logs-YYYY.MM.dd    ("All logs" adds these)
+# The broker's logs must not depend on Kafka being healthy, so this path skips Kafka.
+# Left out: the microservices (their logs go through Kafka, see filebeat-apps.yml) and the Filebeats themselves.
+
+filebeat.autodiscover:
+  providers:
+    - type: docker
+      templates:
+        # 1. Kafka: Java log lines start with "[2026-10-30 ...]"; a stack trace is joined to its line
+        - condition:
+            or:
+              - equals.docker.container.name: kafka-1
+              - equals.docker.container.name: kafka-init
+          config:
+            - type: filestream
+              id: "kafka-${data.docker.container.id}"
+              paths: [ "/var/lib/docker/containers/${data.docker.container.id}/*.log" ]
+              prospector.scanner.symlinks: true
+              parsers:
+                - container: ~
+                - multiline:
+                    type: pattern
+                    pattern: '^\['
+                    negate: true
+                    match: after
+
+        # 2. Every other container of this Compose project, except Kafka (above), the microservices
+        #    and the Filebeats
+        - condition:
+            and:
+              - has_fields: [ "docker.container.labels.com.docker.compose.service" ]
+              - not:
+                  or:
+                    - equals.docker.container.name: producer
+                    - equals.docker.container.name: consumer
+                    - equals.docker.container.name: kafka-1
+                    - equals.docker.container.name: kafka-init
+                    - equals.docker.container.name: filebeat
+                    - equals.docker.container.name: filebeat-apps
+          config:
+            - type: filestream
+              id: "other-${data.docker.container.id}"
+              paths: [ "/var/lib/docker/containers/${data.docker.container.id}/*.log" ]
+              prospector.scanner.symlinks: true
+              parsers:
+                - container: ~
+
+processors:
+  - copy_fields:
+      fields:
+        - from: container.name     # container_name = Compose service name in this project
+          to: service.compose
+      fail_on_error: false
+      ignore_missing: true
+
+# Daily indices, next to app-logs-YYYY.MM.dd, instead of Filebeat's default filebeat-<version> data stream.
+# The Kafka infrastructure goes to infra-logs-*, everything else (the ELK stack) to elk-logs-*.
+output.elasticsearch:
+  hosts: [ "http://elasticsearch:9200" ]
+  index: "elk-logs-%{+yyyy.MM.dd}"
+  indices:
+    - index: "infra-logs-%{+yyyy.MM.dd}"
+      when.or:
+        - equals.container.name: kafka-1
+        - equals.container.name: kafka-init
+        - equals.container.name: kafka-ui
+
+# Plain indices: no Filebeat template or ILM policy; Elasticsearch maps the fields dynamically
+setup.template.enabled: false
+setup.ilm.enabled: false
+
+http.enabled: true
+http.host: 0.0.0.0
+http.port: 5066
+
+logging.level: info

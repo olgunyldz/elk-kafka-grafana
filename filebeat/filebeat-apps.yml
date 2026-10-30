@@ -1,6 +1,6 @@
 # Filebeat for the Spring Boot apps: their own log lines go to Kafka.
 #   producer, consumer (ECS JSON on stdout) --> Docker log files --> filebeat-apps --> topic app-logs
-# Kafka is the buffer: if whatever reads app-logs (Logstash in a later step) is down, logs wait in the topic.
+# Kafka is the buffer: if Logstash or Elasticsearch is down, logs wait in the topic and are indexed later.
 # The apps already mask card and personal data before writing (log-masking library), so nothing
 # sensitive reaches these files or Kafka.
 
@@ -35,13 +35,13 @@ processors:
 
 # Each event is written to Kafka as one JSON document
 output.kafka:
-  hosts: [ "kafka-1:9092", "kafka-2:9092", "kafka-3:9092" ]
+  hosts: [ "kafka-1:9092" ]
   topic: app-logs
   # Key = the container, so each app's log lines land in one partition and keep their order
   key: '%{[container.name]}'
   partition.hash:
     reachable_only: false
-  required_acks: -1          # acks=all: written to all in-sync replicas before Filebeat moves on
+  required_acks: -1          # acks=all: written to all in-sync replicas (here: the one broker) before Filebeat moves on
   compression: gzip
   max_message_bytes: 1000000
 

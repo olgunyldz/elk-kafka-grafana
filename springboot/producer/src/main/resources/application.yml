@@ -5,12 +5,13 @@ spring:
   application:
     name: producer
   kafka:
-    # Host-side listeners of the step 01 cluster. Inside Docker use kafka-1:9092,kafka-2:9092,kafka-3:9092
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092,localhost:29092,localhost:39092}
+    # Host-side listener of the broker. Inside Docker: kafka-1:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
-      # Wait for all in-sync replicas (at least 2, see min.insync.replicas) before a send counts as done
+      # Wait for all in-sync replicas before a send counts as done. With the lab's single broker that's
+      # one copy; on a real cluster with replication factor 3 and min.insync.replicas=2, at least two.
       acks: all
       properties:
         enable.idempotence: true

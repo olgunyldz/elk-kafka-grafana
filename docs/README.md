@@ -8,3 +8,4 @@ Articles that explain each step of the project: what was built, why, and the ide
 | 02 | `step-02-producer-consumer` | [Spring Boot producer and consumer for Kafka](step-02-producer-consumer.md) |
 | 03 | `step-03-protect-kafka-data` | [Protecting card and personal data in Kafka](step-03-protect-kafka-data.md) |
 | 04 | `step-04-logging` | [Logging: ECS JSON, masking, and app logs in Kafka](step-04-logging.md) |
+| 05 | `step-05-elk` | [ELK: Kafka messages and all logs searchable in Kibana](step-05-elk.md) |

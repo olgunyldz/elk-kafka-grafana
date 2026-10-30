@@ -8,6 +8,57 @@ A log and metrics pipeline built one step at a time. Each step is a branch.
 | 02 | `step-02-producer-consumer` | Spring Boot producer and consumer |
 | 03 | `step-03-protect-kafka-data` | No card or personal data readable in Kafka |
 | 04 | `step-04-logging` | App logs as masked ECS JSON, shipped to Kafka |
+| 05 | `step-05-elk` | Kafka messages and all logs searchable in Kibana |
+
+# Step 05: ELK
+
+**Goal:** Kafka messages and all logs searchable in Kibana.
+
+For the full design, read [docs/step-05-elk.md](docs/step-05-elk.md).
+
+| What | Path | Kibana data view |
+|------|------|------------------|
+| Kafka messages | Kafka → Logstash (group `logstash`) → `kafka-messages-<topic>` | *Kafka messages* |
+| App logs (microservices) | producer, consumer → `filebeat-apps` → Kafka `app-logs` → Logstash (group `logstash-app-logs`) → `app-logs-YYYY.MM.dd` | *App logs* (default) |
+| Infra logs | kafka-1, kafka-init, kafka-ui → `filebeat` → `infra-logs-YYYY.MM.dd` | *Infra logs* |
+| ELK logs | elasticsearch, logstash, kibana, kibana-setup → `filebeat` → `elk-logs-YYYY.MM.dd` | — |
+| Every log except the microservices' | infra + ELK | *All logs* |
+
+**One broker now.** To fit ELK in memory, Kafka runs as a single node (`kafka-1`, host port `localhost:19092`), with replication factor 1. The whole stack uses about 5 GB, so give Docker at least 6 GB.
+
+```bash
+# Coming from step 04: the old three-broker volumes can't be reused
+docker compose down -v --remove-orphans
+docker volume rm elk-kafka-grafana_kafka-2-data elk-kafka-grafana_kafka-3-data
+
+docker compose up -d --build        # Kafka, apps, Elasticsearch, Logstash, Kibana, both Filebeats
+```
+
+Then open **Kibana at http://localhost:5601** → Discover. Send some samples from the producer page (http://localhost:8081) and try:
+
+| Data view | Query |
+|-----------|-------|
+| App logs | `log.level : ERROR` |
+| Infra logs | `container.name : "kafka-1" and message : "ERROR"` |
+| App logs | `service.name : consumer and message : "group event-consumer"` |
+| Kafka messages | `kafka.pci_protected : true` |
+| Kafka messages | `payload.payload.card.number : pan\:v1\:4444*` (card ending 4444, no key needed) |
+
+Elasticsearch has no published port (it's on the internal `data-layer`):
+
+```bash
+docker exec elasticsearch curl -s 'localhost:9200/_cat/indices?v&s=index'
+```
+
+| Service | Image | Port |
+|---------|-------|------|
+| elasticsearch | `elasticsearch:9.5.3` | — |
+| logstash | `logstash:9.5.3` | — |
+| kibana | `kibana:9.5.3` | 5601 |
+| filebeat (infrastructure) | `elastic/filebeat:9.5.3` | — |
+| kibana-setup (one-shot) | `curlimages/curl:8.11.1` | — |
+
+---
 
 # Step 04: Logging
 
