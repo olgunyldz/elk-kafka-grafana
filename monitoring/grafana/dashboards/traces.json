@@ -1,0 +1,1273 @@
+{
+  "uid": "elk-kafka-grafana-traces",
+  "title": "Traces",
+  "description": "Traces from Tempo: service map, recent, slow and failed traces, and span metrics (rate, errors, duration).",
+  "tags": [
+    "elk-kafka-grafana",
+    "traces"
+  ],
+  "links": [
+    {
+      "type": "dashboards",
+      "tags": [
+        "elk-kafka-grafana"
+      ],
+      "title": "All dashboards",
+      "asDropdown": false,
+      "includeVars": false,
+      "keepTime": true
+    },
+    {
+      "type": "link",
+      "title": "Explore traces",
+      "url": "/explore?schemaVersion=1&panes=%7B%22a%22:%7B%22datasource%22:%22tempo%22,%22queries%22:%5B%7B%22refId%22:%22A%22,%22datasource%22:%7B%22type%22:%22tempo%22,%22uid%22:%22tempo%22%7D,%22queryType%22:%22traceqlSearch%22%7D%5D,%22range%22:%7B%22from%22:%22now-1h%22,%22to%22:%22now%22%7D%7D%7D",
+      "icon": "external link",
+      "targetBlank": false
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "label": "Service",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(traces_spanmetrics_calls_total, service)",
+          "refId": "service"
+        },
+        "definition": "label_values(traces_spanmetrics_calls_total, service)",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "span",
+        "label": "Operation",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(traces_spanmetrics_calls_total{service=~\"$service\", span_name!~\"http get /actuator.*\"}, span_name)",
+          "refId": "span"
+        },
+        "definition": "label_values(traces_spanmetrics_calls_total{service=~\"$service\", span_name!~\"http get /actuator.*\"}, span_name)",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "refresh": 2,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      }
+    ]
+  },
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Overview",
+      "id": 2,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Requests / s",
+      "id": 3,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "HTTP requests the apps handle (server spans), averaged over 5 minutes.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"$span\", span_name!~\"http get /actuator.*\", span_kind=\"SPAN_KIND_SERVER\"}[5m]))",
+          "legendFormat": "",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "auto",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "mappings": [],
+          "noValue": "\u2013",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Spans / s",
+      "id": 4,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "All spans: HTTP, Kafka sends and Kafka processing.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 1
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"$span\", span_name!~\"http get /actuator.*\"}[5m]))",
+          "legendFormat": "",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "auto",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "mappings": [],
+          "noValue": "\u2013",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Error rate",
+      "id": 5,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Share of spans with status ERROR: an exception, or an HTTP 5xx.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "(sum(rate(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"$span\", span_name!~\"http get /actuator.*\", status_code=\"STATUS_CODE_ERROR\"}[5m])) or vector(0)) / sum(rate(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"$span\", span_name!~\"http get /actuator.*\"}[5m]))",
+          "legendFormat": "",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "auto",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "mappings": [],
+          "noValue": "\u2013",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.01
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "p95 request time",
+      "id": 6,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "95% of HTTP requests finish faster than this (server spans).",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(traces_spanmetrics_latency_bucket{service=~\"$service\", span_name=~\"$span\", span_name!~\"http get /actuator.*\", span_kind=\"SPAN_KIND_SERVER\"}[5m])))",
+          "legendFormat": "",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "auto",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [],
+          "noValue": "\u2013",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.25
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 3
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Kafka records processed / s",
+      "id": 7,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Consumer spans: one per record a @KafkaListener handles.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"$span\", span_name!~\"http get /actuator.*\", span_kind=\"SPAN_KIND_CONSUMER\"}[5m]))",
+          "legendFormat": "",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "auto",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "mappings": [],
+          "noValue": "\u2013",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "p95 consumer processing",
+      "id": 8,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "95% of records are processed by the listener faster than this.",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 1
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(traces_spanmetrics_latency_bucket{service=~\"$service\", span_name=~\"$span\", span_name!~\"http get /actuator.*\", span_kind=\"SPAN_KIND_CONSUMER\"}[5m])))",
+          "legendFormat": "",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "textMode": "auto",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "mappings": [],
+          "noValue": "\u2013",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.1
+              },
+              {
+                "color": "red",
+                "value": 0.5
+              }
+            ]
+          },
+          "decimals": 3
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "row",
+      "title": "Service map",
+      "id": 9,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "panels": []
+    },
+    {
+      "type": "nodeGraph",
+      "title": "Service map",
+      "id": 10,
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "description": "Who calls whom, from the traces: user \u2192 producer (HTTP) \u2192 consumer (through Kafka). Node: requests per second and response time; edge: calls between two services.",
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "refId": "A",
+          "queryType": "serviceMap"
+        }
+      ],
+      "options": {}
+    },
+    {
+      "type": "table",
+      "title": "Call paths",
+      "id": 11,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Each edge of the service map: calls per second and p95 time. connection_type messaging_system = through Kafka.",
+      "gridPos": {
+        "h": 12,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (client, server, connection_type) (rate(traces_service_graph_request_total[5m]))",
+          "legendFormat": "",
+          "refId": "A",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, client, server, connection_type) (rate(traces_service_graph_request_server_seconds_bucket[5m])))",
+          "legendFormat": "",
+          "refId": "B",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "client": "From",
+              "server": "To",
+              "connection_type": "Via",
+              "Value #A": "Calls / s",
+              "Value #B": "p95 time"
+            },
+            "indexByName": {
+              "client": 0,
+              "server": 1,
+              "connection_type": 2,
+              "Value #A": 3,
+              "Value #B": 4
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Calls / s"
+            },
+            "properties": [
+              {
+                "id": "decimals",
+                "value": 2
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "p95 time"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "type": "row",
+      "title": "Traces (click a trace ID to open it)",
+      "id": 12,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Recent traces",
+      "id": 13,
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "description": "The newest traces of the selected services. Click a trace ID to open its waterfall.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 19
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ resource.service.name=~\"$service\" && name !~ \"http get /actuator.*\" }",
+          "limit": 100,
+          "spss": 3,
+          "tableType": "traces"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Start time",
+            "desc": true
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "table",
+      "title": "Slowest traces (over 100 ms)",
+      "id": 14,
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "description": "Traces that took more than 100 ms in total.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 19
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ resource.service.name=~\"$service\" && traceDuration > 100ms }",
+          "limit": 100,
+          "spss": 3,
+          "tableType": "traces"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Start time",
+            "desc": true
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "table",
+      "title": "Traces with errors",
+      "id": 15,
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "description": "Traces with at least one span in status ERROR: exceptions and HTTP 5xx.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 29
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ resource.service.name=~\"$service\" && status = error }",
+          "limit": 100,
+          "spss": 3,
+          "tableType": "traces"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Start time",
+            "desc": true
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "table",
+      "title": "Traces through Kafka",
+      "id": 16,
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "description": "Traces with a Kafka send or receive: the producer \u2192 Kafka \u2192 consumer path.",
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 29
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ span.messaging.system = \"kafka\" }",
+          "limit": 100,
+          "spss": 3,
+          "tableType": "traces"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "displayName": "Start time",
+            "desc": true
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "row",
+      "title": "Spans",
+      "id": 17,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 39
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Spans / s by operation",
+      "id": 18,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "How often each operation runs: HTTP endpoints, Kafka sends per topic, Kafka processing per topic.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (service, span_name) (rate(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"$span\", span_name!~\"http get /actuator.*\"}[1m]))",
+          "legendFormat": "{{service}}: {{span_name}}",
+          "refId": "A",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "p95 duration by operation",
+      "id": 19,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "95% of each operation's spans finish faster than this.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, service, span_name) (rate(traces_spanmetrics_latency_bucket{service=~\"$service\", span_name=~\"$span\", span_name!~\"http get /actuator.*\"}[5m])))",
+          "legendFormat": "{{service}}: {{span_name}}",
+          "refId": "A",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Request time percentiles (HTTP)",
+      "id": 20,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "p50, p95 and p99 of the HTTP requests (server spans).",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 49
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(traces_spanmetrics_latency_bucket{service=~\"$service\", span_name=~\"$span\", span_name!~\"http get /actuator.*\", span_kind=\"SPAN_KIND_SERVER\"}[5m])))",
+          "legendFormat": "p50",
+          "refId": "A",
+          "instant": false,
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(traces_spanmetrics_latency_bucket{service=~\"$service\", span_name=~\"$span\", span_name!~\"http get /actuator.*\", span_kind=\"SPAN_KIND_SERVER\"}[5m])))",
+          "legendFormat": "p95",
+          "refId": "B",
+          "instant": false,
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(traces_spanmetrics_latency_bucket{service=~\"$service\", span_name=~\"$span\", span_name!~\"http get /actuator.*\", span_kind=\"SPAN_KIND_SERVER\"}[5m])))",
+          "legendFormat": "p99",
+          "refId": "C",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Errors / s by operation",
+      "id": 21,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Spans in status ERROR. Empty while nothing fails.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 49
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (service, span_name) (rate(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"$span\", span_name!~\"http get /actuator.*\", status_code=\"STATUS_CODE_ERROR\"}[1m]))",
+          "legendFormat": "{{service}}: {{span_name}}",
+          "refId": "A",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "row",
+      "title": "Kafka hop: producer \u2192 consumer",
+      "id": 22,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 58
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Records / s through Kafka",
+      "id": 23,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Producer \u2192 consumer calls in the service graph: one per record that reached the consumer.",
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 0,
+        "y": 59
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(rate(traces_service_graph_request_total{client=\"producer\", server=\"consumer\"}[1m]))",
+          "legendFormat": "producer \u2192 consumer",
+          "refId": "A",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Send vs. processing time (p95)",
+      "id": 24,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Client = the producer's send span (until the broker acknowledged); server = the consumer's processing span.",
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 8,
+        "y": 59
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(traces_service_graph_request_client_seconds_bucket{client=\"producer\", server=\"consumer\"}[5m])))",
+          "legendFormat": "send (producer)",
+          "refId": "A",
+          "instant": false,
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(traces_service_graph_request_server_seconds_bucket{client=\"producer\", server=\"consumer\"}[5m])))",
+          "legendFormat": "process (consumer)",
+          "refId": "B",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Kafka spans / s by topic",
+      "id": 25,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Sends and processing per topic: the two sides of every record.",
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 16,
+        "y": 59
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (span_name) (rate(traces_spanmetrics_calls_total{service=~\"$service\", span_name=~\"$span\", span_name!~\"http get /actuator.*\", span_kind=~\"SPAN_KIND_PRODUCER|SPAN_KIND_CONSUMER\"}[1m]))",
+          "legendFormat": "{{span_name}}",
+          "refId": "A",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    }
+  ]
+}

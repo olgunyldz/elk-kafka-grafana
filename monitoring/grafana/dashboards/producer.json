@@ -820,7 +820,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(spring_kafka_template_seconds_sum{application=\"producer\", source=~\"$source\", result=\"success\"}[1m])) / sum(rate(spring_kafka_template_seconds_count{application=\"producer\", source=~\"$source\", result=\"success\"}[1m]))",
+          "expr": "sum(rate(spring_kafka_template_seconds_sum{application=\"producer\", source=~\"$source\", error=\"none\"}[1m])) / sum(rate(spring_kafka_template_seconds_count{application=\"producer\", source=~\"$source\", error=\"none\"}[1m]))",
           "legendFormat": "avg",
           "refId": "A",
           "instant": false,
@@ -1198,7 +1198,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Failed sends by exception",
+      "title": "Failed sends by error type",
       "id": 24,
       "datasource": {
         "type": "prometheus",
@@ -1217,8 +1217,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (exception) (rate(spring_kafka_template_seconds_count{application=\"producer\", source=~\"$source\", result=\"failure\"}[1m]))",
-          "legendFormat": "{{exception}}",
+          "expr": "sum by (error) (rate(spring_kafka_template_seconds_count{application=\"producer\", source=~\"$source\", error!=\"none\"}[1m]))",
+          "legendFormat": "{{error}}",
           "refId": "A",
           "instant": false,
           "range": true
@@ -1844,6 +1844,55 @@
       }
     },
     {
+      "type": "timeseries",
+      "title": "Response time p95, with traces",
+      "id": 42,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "95th percentile response time of the /api endpoints. The dots are exemplars: single requests with their trace id. Hover a dot and click \"Query with Tempo\" to open that request's trace: HTTP, Kafka send and the consumer's processing.",
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 70
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (le, uri) (rate(http_server_requests_seconds_bucket{application=\"producer\", source=~\"$source\", uri=~\"/api/.*\"}[1m])))",
+          "legendFormat": "{{uri}} p95",
+          "refId": "A",
+          "exemplar": true,
+          "range": true,
+          "instant": false
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "fillOpacity": 10,
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
       "type": "row",
       "title": "JVM",
       "id": 37,
@@ -1852,7 +1901,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 70
+        "y": 79
       },
       "panels": []
     },
@@ -1869,7 +1918,7 @@
         "h": 8,
         "w": 6,
         "x": 0,
-        "y": 71
+        "y": 80
       },
       "targets": [
         {
@@ -1932,7 +1981,7 @@
         "h": 8,
         "w": 6,
         "x": 6,
-        "y": 71
+        "y": 80
       },
       "targets": [
         {
@@ -1995,7 +2044,7 @@
         "h": 8,
         "w": 6,
         "x": 12,
-        "y": 71
+        "y": 80
       },
       "targets": [
         {
@@ -2058,7 +2107,7 @@
         "h": 8,
         "w": 6,
         "x": 18,
-        "y": 71
+        "y": 80
       },
       "targets": [
         {

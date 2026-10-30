@@ -11,6 +11,35 @@ A log and metrics pipeline built one step at a time. Each step is a branch.
 | 05 | `step-05-elk` | Kafka messages and all logs searchable in Kibana |
 | 06 | `step-06-mask-logging` | No sensitive data in any log, at three layers |
 | 07 | `step-07-monitoring` | Metrics and health of the broker, apps and containers in Grafana |
+| 08 | `step-08-tracing` | One request followed across both apps, linked to its logs and metrics |
+
+# Step 08: Tracing
+
+**Goal:** follow a single request from the producer's HTTP API, through Kafka, into the consumer and on to a REST service, and connect it to its logs and metrics.
+
+For the full design, read [docs/step-08-tracing.md](docs/step-08-tracing.md).
+
+```text
+producer     http post /api/events
+producer       app-events send
+consumer         app-events process        (one of two replicas)
+consumer           http post               → message-api
+message-api          http post /api/messages
+```
+
+| Piece | Role |
+|-------|------|
+| Micrometer Tracing + OpenTelemetry (`spring-boot-starter-opentelemetry`) | Spans for HTTP requests, Kafka sends and listener calls; trace ids in every log line |
+| Kafka observation | The `traceparent` record header carries the trace from producer to consumer |
+| Grafana Tempo (`grafana/tempo:2.8.2`) | Stores traces for 24 h; service graph and span metrics into Prometheus |
+| Grafana | Explore → Tempo; links trace → logs (Elasticsearch), trace → metrics, metric → trace (exemplars) |
+| `MaskingObservationFilter` (library) | Masks card and personal data in span attributes, like `http.url` |
+| **message-api** (new, port 8084) | `POST /api/messages`: logs the notice and acknowledges it. The consumer calls it for every record (only the record's topic, partition, offset, key and type, never the decrypted value) |
+| **Consumer × 2** | `deploy.replicas: 2`, host ports 8082–8083: the consumer groups split the partitions over both replicas |
+
+Try it: send a few samples from http://localhost:8081, then open the **Traces** dashboard in Grafana (http://localhost:3000/d/elk-kafka-grafana-traces): overview, service map, recent / slow / failed / Kafka traces, span rates and durations. Click a trace ID, open a span and click *Logs for this span*. For free-form search use **Explore → Tempo**. In Kibana, `trace.id : "<id>"` shows the same request's log lines from both apps.
+
+---
 
 # Step 07: Monitoring
 

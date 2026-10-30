@@ -11,3 +11,4 @@ Articles that explain each step of the project: what was built, why, and the ide
 | 05 | `step-05-elk` | [ELK: Kafka messages and all logs searchable in Kibana](step-05-elk.md) |
 | 06 | `step-06-mask-logging` | [Masking in three layers: no sensitive data in any log](step-06-mask-logging.md) |
 | 07 | `step-07-monitoring` | [Monitoring: Prometheus and Grafana](step-07-monitoring.md) |
+| 08 | `step-08-tracing` | [Tracing: one request across both apps, in Grafana Tempo](step-08-tracing.md) |

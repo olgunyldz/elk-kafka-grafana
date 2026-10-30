@@ -1,0 +1,44 @@
+server:
+  port: 8084
+
+spring:
+  application:
+    name: message-api
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # prometheus: scraped by Prometheus every 5 s (monitoring/prometheus.yml)
+        include: health,info,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        # Buckets for HTTP request times: percentiles and exemplars (links to traces)
+        http.server.requests: true
+  tracing:
+    sampling:
+      probability: 1.0            # trace every request (lab); the default is 0.1
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          # Tempo's OTLP/HTTP receiver. Inside Docker: http://tempo:4318/v1/traces
+          endpoint: ${OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+  # Only traces go over OTLP: metrics go to Prometheus, logs through Filebeat
+  otlp:
+    metrics:
+      export:
+        enabled: false
+  logging:
+    export:
+      otlp:
+        enabled: false
+
+logging:
+  # Plain text by default (IDE, mvn spring-boot:run). Docker sets LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs
+  # for one ECS JSON object per line, which Filebeat ships to the app-logs topic.
+  masking:
+    enabled: true

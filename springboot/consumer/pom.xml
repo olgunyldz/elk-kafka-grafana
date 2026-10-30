@@ -32,6 +32,16 @@
             <groupId>io.micrometer</groupId>
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
+        <!-- Tracing: Micrometer Tracing with the OpenTelemetry bridge, spans exported over OTLP to Tempo -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-opentelemetry</artifactId>
+        </dependency>
+        <!-- RestClient for the calls to message-api; Spring Boot's builder adds client spans and metrics -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-restclient</artifactId>
+        </dependency>
         <!-- Web server only for the actuator endpoints: health and prometheus -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -9,6 +9,7 @@ COPY pom.xml .
 COPY log-masking/pom.xml log-masking/
 COPY producer/pom.xml producer/
 COPY consumer/pom.xml consumer/
+COPY message-api/pom.xml message-api/
 
 # 1a. Build and install the log-masking library first, with its tests: the app depends on it.
 #     The cache mount keeps downloaded dependencies and the installed library between builds.
