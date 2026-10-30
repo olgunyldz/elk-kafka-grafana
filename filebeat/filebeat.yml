@@ -1,5 +1,5 @@
 # Filebeat for every container except the microservices: straight to Elasticsearch, without Kafka.
-#   kafka-1, kafka-init, kafka-ui, monitoring containers   --> infra-logs-YYYY.MM.dd  ("Infra logs" data view)
+#   kafka-1, kafka-2, kafka-controller, kafka-init, kafka-ui, monitoring   --> infra-logs-YYYY.MM.dd  ("Infra logs" data view)
 #   elasticsearch, logstash, kibana, kibana-setup          --> elk-logs-YYYY.MM.dd    ("All logs" adds these)
 #   (monitoring: kafka-exporter, blackbox-exporter, cadvisor, prometheus, grafana, tempo, jmx-exporter-download)
 # The broker's logs must not depend on Kafka being healthy, so this path skips Kafka.
@@ -13,6 +13,8 @@ filebeat.autodiscover:
         - condition:
             or:
               - equals.docker.container.name: kafka-1
+              - equals.docker.container.name: kafka-2
+              - equals.docker.container.name: kafka-controller
               - equals.docker.container.name: kafka-init
           config:
             - type: filestream
@@ -37,7 +39,10 @@ filebeat.autodiscover:
                     - equals.docker.container.labels.com.docker.compose.service: producer
                     - equals.docker.container.labels.com.docker.compose.service: consumer
                     - equals.docker.container.labels.com.docker.compose.service: message-api
+                    - equals.docker.container.labels.com.docker.compose.service: audit-verifier
                     - equals.docker.container.name: kafka-1
+                    - equals.docker.container.name: kafka-2
+                    - equals.docker.container.name: kafka-controller
                     - equals.docker.container.name: kafka-init
                     - equals.docker.container.name: filebeat
                     - equals.docker.container.name: filebeat-apps
@@ -112,6 +117,8 @@ output.elasticsearch:
     - index: "infra-logs-%{+yyyy.MM.dd}"
       when.or:
         - equals.container.name: kafka-1
+        - equals.container.name: kafka-2
+        - equals.container.name: kafka-controller
         - equals.container.name: kafka-init
         - equals.container.name: kafka-ui
         - equals.container.name: kafka-exporter

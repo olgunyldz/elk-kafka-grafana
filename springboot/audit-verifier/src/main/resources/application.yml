@@ -1,0 +1,44 @@
+server:
+  port: 8085
+
+spring:
+  application:
+    name: audit-verifier
+  kafka:
+    # For its own audit records (AUDIT_CHAIN_BROKEN, AUDIT_VERIFICATION_COMPLETED, DLP_FINDING…)
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092,localhost:29092}
+
+verifier:
+  archive-dir: ${AUDIT_ARCHIVE_DIR:./audit-archive}
+  anchors-file: ${AUDIT_ANCHORS_FILE:./audit-anchors/anchors.json}
+  keys:
+    # Every key id that ever signed records; keep old ones after a rotation. PUBLIC lab key by default.
+    audit-v1: ${AUDIT_HMAC_KEY:Vb8x2lXQ7Hn3yQm1q0bC9kRzT5uW4eA6sD2fG8hJ1kM=}
+  stale-after: 3m                 # 3 missed heartbeats (the apps write one every 60 s)
+  interval: 60s
+  initial-delay: 30s
+  elasticsearch-url: ${ELASTICSEARCH_URL:http://localhost:9200}
+  dlp-indices: app-logs-*,infra-logs-*,elk-logs-*,kafka-messages-*,audit-*
+
+pci:
+  # Needed by the library's checks; the verifier decrypts nothing. PUBLIC lab key by default.
+  data-encryption-key: ${DATA_ENCRYPTION_KEY:+WpfE866Ysy6Lp51Q61eBAcupVyUtI5nnyxwm6avujc=}
+
+audit:
+  enabled: true
+  hmac-key: ${AUDIT_HMAC_KEY:Vb8x2lXQ7Hn3yQm1q0bC9kRzT5uW4eA6sD2fG8hJ1kM=}
+  key-id: audit-v1
+  heartbeat-interval: 60s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+logging:
+  masking:
+    enabled: true

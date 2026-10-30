@@ -8,17 +8,23 @@ spring:
     template:
       # Observation: a span per send, and the trace context (traceparent) in a record header
       observation-enabled: true
-    # Host-side listener of the broker. Inside Docker: kafka-1:9092
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092}
+    # Host-side listeners of the brokers. Inside Docker: kafka-1:9092,kafka-2:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092,localhost:29092}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
-      # Wait for all in-sync replicas before a send counts as done. With the lab's single broker that's
-      # one copy; on a real cluster with replication factor 3 and min.insync.replicas=2, at least two.
+      # Wait for all in-sync replicas before a send counts as done: both brokers when both are up
+      # (replication factor 2); with min.insync.replicas=1 writes go on while one broker is down.
       acks: all
       properties:
         enable.idempotence: true
         linger.ms: 5
+        # Fail over fast when a broker disappears. A stopped container drops off the network without
+        # closing its connections, so an in-flight request waits for request.timeout.ms (default 30 s)
+        # before the producer retries on the new leader; the API call would wait just as long.
+        request.timeout.ms: 10000
+        delivery.timeout.ms: 30000      # total time per record, retries included (>= linger + request timeout)
+        max.block.ms: 10000             # send() waiting for metadata when no broker answers (default 60 s)
         # Short type names in the __TypeId__ header, so the consumer doesn't need our class names
         spring.json.type.mapping: "log:io.github.olgunyldz.producer.model.LogMessage,event:io.github.olgunyldz.producer.model.AppEvent,metric:io.github.olgunyldz.producer.model.MetricMessage"
 
@@ -37,6 +43,15 @@ pci:
   # AES-256 key (base64, 32 bytes) for card and personal data. The default is the PUBLIC lab key
   # from the repo: anyone can decrypt with it. Real environments must set DATA_ENCRYPTION_KEY.
   data-encryption-key: ${DATA_ENCRYPTION_KEY:+WpfE866Ysy6Lp51Q61eBAcupVyUtI5nnyxwm6avujc=}
+
+audit:
+  # Regulatory audit log (separate from the application logs): hash-chained records to the audit-events topic
+  enabled: true
+  # HMAC key for the hash chain: its own secret, not the data encryption key. The default is the PUBLIC lab
+  # key: real environments must set AUDIT_HMAC_KEY (from a KMS / Vault).
+  hmac-key: ${AUDIT_HMAC_KEY:Vb8x2lXQ7Hn3yQm1q0bC9kRzT5uW4eA6sD2fG8hJ1kM=}
+  key-id: audit-v1
+  heartbeat-interval: 60s
 
 management:
   endpoints:

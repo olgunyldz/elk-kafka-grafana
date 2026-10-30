@@ -24,6 +24,7 @@
         <module>producer</module>
         <module>consumer</module>
         <module>message-api</module>
+        <module>audit-verifier</module>
     </modules>
 
     <properties>

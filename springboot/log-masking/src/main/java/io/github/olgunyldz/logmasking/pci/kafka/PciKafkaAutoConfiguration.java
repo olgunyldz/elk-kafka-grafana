@@ -1,5 +1,6 @@
 package io.github.olgunyldz.logmasking.pci.kafka;
 
+import io.github.olgunyldz.logmasking.audit.AuditLogger;
 import io.github.olgunyldz.logmasking.pci.SensitiveDataDetector;
 import io.github.olgunyldz.logmasking.pci.SensitiveDataEncryption;
 import org.springframework.beans.factory.ObjectProvider;
@@ -73,8 +74,10 @@ public class PciKafkaAutoConfiguration {
     @ConditionalOnProperty(prefix = "pci.decrypt", name = "consumer-groups")
     PciDecryptingRecordInterceptor pciDecryptingRecordInterceptor(SensitiveDataEncryption encryption,
                                                                   ObjectProvider<JsonMapper> jsonMapper,
-                                                                  PciProperties properties) {
+                                                                  PciProperties properties,
+                                                                  ObjectProvider<AuditLogger> audit) {
+        // With audit logging on (audit.enabled), every decryption is audited
         return new PciDecryptingRecordInterceptor(encryption, jsonMapper.getIfAvailable(JsonMapper::new),
-                properties.decryptGroups());
+                properties.decryptGroups(), audit.getIfAvailable());
     }
 }

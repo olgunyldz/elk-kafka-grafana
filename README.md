@@ -12,6 +12,47 @@ A log and metrics pipeline built one step at a time. Each step is a branch.
 | 06 | `step-06-mask-logging` | No sensitive data in any log, at three layers |
 | 07 | `step-07-monitoring` | Metrics and health of the broker, apps and containers in Grafana |
 | 08 | `step-08-tracing` | One request followed across both apps, linked to its logs and metrics |
+| 09 | `step-09-audit-log` | Tamper-evident audit records for the actions regulators ask about |
+
+# Step 09: Audit log
+
+**Goal:** a separate audit trail (BDDK, PCI DSS 10, MASAK, KVKK) for customer actions, employee actions and the log system's own events, written so that a missing, changed or inserted record is detected, and with nothing sensitive in it.
+
+For the full design, read [docs/step-09-audit-log.md](docs/step-09-audit-log.md).
+
+```text
+producer, message-api, consumer ──AuditLogger: seq + prevHash + HMAC, acks=all──> audit-events (RF 2, min ISR 2)
+   no ack? the action is refused (503)                                                   │
+                                                          Logstash "audit" ──> /audit-archive/audit-YYYY-MM-DD.jsonl  (record of truth)
+                                                                           └─> audit-YYYY.MM in Elasticsearch       (search, 10 years)
+audit-verifier, every minute: checks every chain in the archive, scans the logs for clear card numbers / national IDs
+```
+
+| Piece | Role |
+|-------|------|
+| Library `audit` package | `AuditLogger` seals each record into its instance's hash chain (HMAC-SHA256), sends it and waits; rejects records holding card numbers, national IDs, IBANs, emails or phones; heartbeat every 60 s |
+| **Producer** `POST /api/banking/actions` | Customer channel: login / failed login / lock, OTP, device and SIM change, transfers, bill payment, limits, applications, consents |
+| **message-api** `/api/customers/*`, `/api/admin/*` | Employees: viewing a customer, export, role and parameter changes with four-eyes approval |
+| **Consumer** | Audits every decryption of card data (`SENSITIVE_DATA_DECRYPTED`) |
+| **Kafka**: `kafka-2` + `kafka-controller` | Two brokers, three KRaft controllers; `audit-events` needs both brokers to acknowledge (`min.insync.replicas=2`) |
+| **audit-verifier** (new, port 8085) | Deleted, changed, inserted, reordered or truncated records, silent apps (STALE), DLP scan; findings are audit records too |
+| Elasticsearch / Kibana | `audit-retention` (3 months hot, deleted after 10 years); their own view: data view *Audit events*, dashboard *Audit log*, seven saved searches for auditors' questions |
+| Grafana | *Stack Health* → *Audit log*: chains OK / broken / stale, failed writes, DLP findings, last verification |
+
+Coming from step 08, remove the old Kafka volume once (its metadata knows only one controller): `docker compose down && docker volume rm elk-kafka-grafana_kafka-1-data`, then `docker compose up -d --build`. The stack now needs about 9 GB of memory.
+
+Try it: on http://localhost:8081, use the *Audit log* section (customer and employee actions). Then tamper with the archive and watch the verifier catch it:
+
+```bash
+F=/audit-archive/audit-$(date -u +%F).jsonl
+docker exec logstash sed -i 's/"amount":"1500"/"amount":"15"/' $F     # after a TRANSFER of 1500
+docker logs -f audit-verifier 2>&1 | grep -o '"message":"Audit[^"]*'
+# Audit chain BROKEN: f536… (producer/58e25f955fec) at seq 3: hash does not match the record (modified or forged)
+```
+
+Stop `kafka-2` and audited actions answer 503 while ordinary messages still flow. In Kibana: the **Audit log** dashboard (http://localhost:5601/app/dashboards#/view/audit-dashboard), or *Discover → Open → Audit: …*. The microservices' own logs have a dashboard too: **Microservices** (http://localhost:5601/app/dashboards#/view/microservices-dashboard).
+
+---
 
 # Step 08: Tracing
 
