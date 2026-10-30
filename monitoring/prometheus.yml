@@ -2,10 +2,10 @@ global:
   scrape_interval: 5s
 
 scrape_configs:
-  # The broker: JMX exporter agent inside the Kafka container (rules in monitoring/kafka-jmx.yml)
+  # The brokers: JMX exporter agent inside each Kafka container (rules in monitoring/kafka-jmx.yml)
   - job_name: kafka-broker
     static_configs:
-      - targets: [ "kafka-1:7071" ]
+      - targets: [ "kafka-1:7071", "kafka-2:7071", "kafka-controller:7071" ]
     relabel_configs:
       # instance="kafka-1" instead of "kafka-1:7071"
       - source_labels: [ __address__ ]
@@ -18,7 +18,7 @@ scrape_configs:
     # Exemplars (trace ids on the HTTP histograms) only come in the OpenMetrics format
     scrape_protocols: [ OpenMetricsText1.0.0, PrometheusText0.0.4 ]
     static_configs:
-      - targets: [ "producer:8081", "message-api:8084" ]
+      - targets: [ "producer:8081", "message-api:8084", "audit-verifier:8085" ]
         labels:
           source: docker
     # The consumer runs as 2 replicas: Docker's DNS returns every replica's address for "consumer",
@@ -51,6 +51,8 @@ scrape_configs:
         labels: { service: consumer }
       - targets: [ "http://message-api:8084/actuator/health" ]
         labels: { service: message-api }
+      - targets: [ "http://audit-verifier:8085/actuator/health" ]
+        labels: { service: audit-verifier }
       - targets: [ "http://kafka-ui:8080/" ]
         labels: { service: kafka-ui }
       - targets: [ "http://kafka-exporter:9308/metrics" ]
@@ -89,10 +91,14 @@ scrape_configs:
     static_configs:
       - targets: [ "kafka-1:9092" ]
         labels: { service: kafka-1 }
+      - targets: [ "kafka-2:9092" ]
+        labels: { service: kafka-2 }
+      - targets: [ "kafka-controller:9093" ]
+        labels: { service: kafka-controller }
     relabel_configs: *blackbox-relabel
 
   # Consumer group offsets and lag, read from the broker by kafka-exporter
-  # (our three groups and both Logstash groups)
+  # (our three groups and the three Logstash groups)
   - job_name: kafka-exporter
     static_configs:
       - targets: [ "kafka-exporter:9308" ]

@@ -1,4 +1,4 @@
-# Two independent Logstash pipelines, each with its own Kafka consumer group, filters and output.
+# Three independent Logstash pipelines, each with its own Kafka consumer group, filters and output.
 # (Without this file Logstash would merge every .conf in the pipeline folder into ONE pipeline,
 # and events of both inputs would go through both outputs.)
 
@@ -9,3 +9,9 @@
 # Logs of the Spring Boot apps from the topic app-logs -> app-logs-YYYY.MM.dd   (group logstash-app-logs)
 - pipeline.id: app-logs
   path.config: "/usr/share/logstash/pipeline/app-logs.conf"
+
+# Audit (regulation) records from the topic audit-events -> the append-only archive file
+# /audit-archive/audit-YYYY-MM-DD.jsonl (the record of truth the audit-verifier checks) and
+# audit-YYYY.MM for searching   (group logstash-audit)
+- pipeline.id: audit
+  path.config: "/usr/share/logstash/pipeline/audit.conf"

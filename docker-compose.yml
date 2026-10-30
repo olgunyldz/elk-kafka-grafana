@@ -1,23 +1,30 @@
-# Kafka (1 node, KRaft) + Spring Boot apps + ELK + Prometheus/Grafana
+# Kafka (2 brokers, 3 KRaft controllers) + Spring Boot apps + ELK + Prometheus/Grafana + Tempo + audit log
 #
-# Kafka inside Docker: kafka-1:9092 · from the host: localhost:19092
+# Kafka inside Docker: kafka-1:9092,kafka-2:9092 · from the host: localhost:19092, localhost:29092
 # Web UIs: kafka-ui http://localhost:8080 · producer http://localhost:8081 · Kibana http://localhost:5601
 #          Grafana http://localhost:3000 (traces: Explore → Tempo) · Prometheus http://localhost:9090
 #
 # Networks, one per layer:
-#   data-layer     kafka-1, kafka-init, elasticsearch, + logstash, kibana, kibana-setup, filebeat
+#   data-layer     kafka-1, kafka-2, kafka-controller, kafka-init, elasticsearch, audit-verifier,
+#                  + logstash, kibana, kibana-setup, filebeat
 #                  (internal: no route to the outside world, no published ports for its-only members)
-#   service-layer  kafka-1, producer, consumer, kafka-ui, filebeat-apps, kafka-exporter, grafana,
-#                  tempo, + logstash, kibana, prometheus, blackbox-exporter, grafana
-# Containers that bridge the layers (kafka-1, logstash, kibana, prometheus, blackbox-exporter, grafana) join both.
+#   service-layer  kafka-1, kafka-2, producer, consumer, message-api, audit-verifier, kafka-ui, filebeat-apps,
+#                  kafka-exporter, tempo, + logstash, kibana, prometheus, blackbox-exporter, grafana
+# Containers that bridge the layers (kafka-1, kafka-2, logstash, kibana, audit-verifier, prometheus,
+# blackbox-exporter, grafana) join both.
 #
-# Memory: one broker and capped JVM heaps keep the whole stack around 5-6 GB.
+# Memory: capped JVM heaps keep the whole stack around 8-9 GB (give Docker 10 GB or more).
 
 # Key for card and personal data in Kafka messages (AES-256, base64).
 # This is the PUBLIC lab key from the repo: anyone with it can decrypt. Override it with
 # DATA_ENCRYPTION_KEY in your shell or a .env file (git-ignored) for anything real.
 x-pci-env: &pci-env
   DATA_ENCRYPTION_KEY: ${DATA_ENCRYPTION_KEY:-+WpfE866Ysy6Lp51Q61eBAcupVyUtI5nnyxwm6avujc=}
+
+# Key that seals the audit records (HMAC-SHA256 hash chain, step 09). Same story: PUBLIC lab key,
+# override AUDIT_HMAC_KEY for anything real. The apps write with it, the audit-verifier checks with it.
+x-audit-env: &audit-env
+  AUDIT_HMAC_KEY: ${AUDIT_HMAC_KEY:-Vb8x2lXQ7Hn3yQm1q0bC9kRzT5uW4eA6sD2fG8hJ1kM=}
 
 # Spring Boot logging in Docker: one ECS JSON object per line (plain text when run from the IDE),
 # so filebeat-apps can ship it to the app-logs topic. service.name comes from spring.application.name.
@@ -30,6 +37,52 @@ x-filebeat-common: &filebeat-common
   image: elastic/filebeat:9.5.3
   user: root                       # to read the Docker socket and the container log files
   command: [ "filebeat", "-e", "--strict.perms=false" ]
+
+# Settings both brokers share
+x-kafka-common: &kafka-common
+  image: apache/kafka:4.0.0
+  # Starts the broker with the Prometheus JMX exporter agent (metrics on :7071/metrics).
+  # KAFKA_OPTS is set only for the broker process, not as a container env var: otherwise every
+  # kafka-*.sh tool run in the container (healthcheck, docker exec) would also load the agent and
+  # fail because port 7071 is already taken by the broker.
+  command:
+    - bash
+    - -c
+    - >-
+      export KAFKA_OPTS="-javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent.jar=7071:/opt/jmx-exporter-config/kafka-jmx.yml"
+      && exec /etc/kafka/docker/run
+  depends_on:
+    jmx-exporter-download:
+      condition: service_completed_successfully
+  healthcheck:
+    test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+    interval: 10s
+    timeout: 10s
+    retries: 12
+    start_period: 20s
+  networks:
+    - data-layer
+    - service-layer
+
+x-kafka-env: &kafka-env
+  CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+  # Three controllers: a majority (2 of 3) survives losing any one node
+  KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-controller:9093
+  KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+  KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+  # Two brokers: two copies of everything; writes need one in-sync copy
+  KAFKA_DEFAULT_REPLICATION_FACTOR: 2
+  KAFKA_MIN_INSYNC_REPLICAS: 1
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 2
+  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 2
+  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+  KAFKA_NUM_PARTITIONS: 3
+  # Topics are created explicitly by kafka-init
+  KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+  KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+  KAFKA_LOG_DIRS: /var/lib/kafka/data
+  KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
 
 services:
   # ---- Kafka -------------------------------------------------------------------------------
@@ -51,62 +104,71 @@ services:
     networks:
       - service-layer     # needs the internet
 
-  # A single node that is both broker and controller. With one broker every topic has
-  # replication factor 1: no failover, but a fraction of the memory of three brokers.
+  # Two brokers and three KRaft controllers. kafka-1 and kafka-2 are broker + controller,
+  # kafka-controller is a controller only (no data). The controllers elect partition leaders; they
+  # need a majority, so with three any one node can fail. (With two controllers a majority would
+  # be both, and with one, losing it stops the whole cluster even though the data is on both brokers.)
+  # Topics have replication factor 2 and min.insync.replicas 1: a copy of every partition on each
+  # broker, and writes go on while either broker is down (with acks=all the leader then waits only
+  # for itself).
   kafka-1:
-    image: apache/kafka:4.0.0
+    <<: *kafka-common
     container_name: kafka-1
     hostname: kafka-1
     ports:
       - "19092:9094"
-    # Starts the broker with the Prometheus JMX exporter agent (metrics on :7071/metrics).
-    # KAFKA_OPTS is set only for the broker process, not as a container env var: otherwise every
-    # kafka-*.sh tool run in the container (healthcheck, docker exec) would also load the agent and
-    # fail because port 7071 is already taken by the broker.
-    command:
-      - bash
-      - -c
-      - >-
-        export KAFKA_OPTS="-javaagent:/opt/jmx-exporter/jmx_prometheus_javaagent.jar=7071:/opt/jmx-exporter-config/kafka-jmx.yml"
-        && exec /etc/kafka/docker/run
     environment:
-      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      <<: *kafka-env
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093
-      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:9094
       KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-1:9092,EXTERNAL://localhost:19092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-      # One broker: every replication factor is 1
-      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
-      KAFKA_MIN_INSYNC_REPLICAS: 1
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_NUM_PARTITIONS: 3
-      # Topics are created explicitly by kafka-init
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
-      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
-      KAFKA_LOG_DIRS: /var/lib/kafka/data
-      KAFKA_HEAP_OPTS: -Xms512m -Xmx512m
     volumes:
       - kafka-1-data:/var/lib/kafka/data
       - jmx-agent:/opt/jmx-exporter:ro
       - ./monitoring/kafka-jmx.yml:/opt/jmx-exporter-config/kafka-jmx.yml:ro
-    depends_on:
-      jmx-exporter-download:
-        condition: service_completed_successfully
+
+  kafka-2:
+    <<: *kafka-common
+    container_name: kafka-2
+    hostname: kafka-2
+    ports:
+      - "29092:9094"
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: 2
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: INTERNAL://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka-2:9092,EXTERNAL://localhost:29092
+    volumes:
+      - kafka-2-data:/var/lib/kafka/data
+      - jmx-agent:/opt/jmx-exporter:ro
+      - ./monitoring/kafka-jmx.yml:/opt/jmx-exporter-config/kafka-jmx.yml:ro
+
+  # Third controller: votes in the KRaft quorum, holds no topic data. Small heap; no host port.
+  kafka-controller:
+    <<: *kafka-common
+    container_name: kafka-controller
+    hostname: kafka-controller
+    environment:
+      <<: *kafka-env
+      KAFKA_NODE_ID: 3
+      KAFKA_PROCESS_ROLES: controller
+      KAFKA_LISTENERS: CONTROLLER://:9093
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx256m
+    volumes:
+      - kafka-controller-data:/var/lib/kafka/data
+      - jmx-agent:/opt/jmx-exporter:ro
+      - ./monitoring/kafka-jmx.yml:/opt/jmx-exporter-config/kafka-jmx.yml:ro
+    # No broker port to ask: check that it's part of a quorum with a leader
     healthcheck:
-      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-metadata-quorum.sh --bootstrap-controller localhost:9093 describe --status | grep -q LeaderId"]
       interval: 10s
       timeout: 10s
       retries: 12
       start_period: 20s
     networks:
-      - data-layer
-      - service-layer
+      - data-layer        # only talks to the other controllers
 
   # One-shot container: creates the topics, then exits
   kafka-init:
@@ -114,11 +176,15 @@ services:
     container_name: kafka-init
     entrypoint: ["/bin/bash", "/scripts/create-topics.sh"]
     environment:
-      BOOTSTRAP_SERVERS: kafka-1:9092
+      BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092
     volumes:
       - ./scripts:/scripts:ro
     depends_on:
       kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-controller:
         condition: service_healthy
     restart: "no"
     networks:
@@ -131,7 +197,7 @@ services:
       - "8080:8080"
     environment:
       KAFKA_CLUSTERS_0_NAME: local
-      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-1:9092
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka-1:9092,kafka-2:9092
     depends_on:
       kafka-init:
         condition: service_completed_successfully
@@ -155,8 +221,8 @@ services:
       retries: 10
       start_period: 20s
     environment:
-      <<: [*pci-env, *logging-env]
-      KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092
+      <<: [*pci-env, *audit-env, *logging-env]
+      KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092
       OTLP_TRACING_ENDPOINT: http://tempo:4318/v1/traces
       SIMULATOR_ENABLED: "false"
     depends_on:
@@ -184,8 +250,8 @@ services:
       retries: 10
       start_period: 20s
     environment:
-      <<: [*pci-env, *logging-env]
-      KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092
+      <<: [*pci-env, *audit-env, *logging-env]
+      KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092
       OTLP_TRACING_ENDPOINT: http://tempo:4318/v1/traces
       MESSAGE_API_URL: http://message-api:8084
     depends_on:
@@ -213,14 +279,54 @@ services:
       retries: 10
       start_period: 20s
     environment:
-      <<: *logging-env
+      <<: [*pci-env, *audit-env, *logging-env]
+      KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092    # for its audit records (employee actions)
       OTLP_TRACING_ENDPOINT: http://tempo:4318/v1/traces
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
     networks:
       - service-layer
 
+  # Every minute: checks the hash chains in the audit archive (deleted, changed, inserted, reordered
+  # or truncated records, a service that stopped writing), and scans Elasticsearch for unmasked
+  # card numbers and national IDs (DLP). Findings are audit records too. Metrics on :8085.
+  audit-verifier:
+    build:
+      context: ./springboot
+      dockerfile: audit-verifier/Dockerfile
+    image: elk-kafka-grafana/audit-verifier
+    container_name: audit-verifier
+    group_add: [ "1000" ]         # Logstash's group: may read the archive files, not write them
+    ports:
+      - "8085:8085"
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8085/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    environment:
+      <<: [*pci-env, *audit-env, *logging-env]
+      KAFKA_BOOTSTRAP_SERVERS: kafka-1:9092,kafka-2:9092
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+      AUDIT_ARCHIVE_DIR: /audit-archive
+      AUDIT_ANCHORS_FILE: /audit-anchors/anchors.json
+    volumes:
+      - audit-archive:/audit-archive:ro        # read only: the verifier never changes the archive
+      - audit-anchors:/audit-anchors           # kept apart from the archive
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      audit-archive-init:
+        condition: service_completed_successfully
+    networks:
+      - data-layer        # to reach Elasticsearch (DLP scan)
+      - service-layer     # to reach Kafka, publish port 8085
+
   # ---- ELK: Elasticsearch, Logstash, Kibana, plus Filebeat ---------------------------------
   #   Kafka messages: app-events, app-log-messages, app-metrics --> logstash --> kafka-messages-<topic>
-  #   App logs:       producer, consumer (x2), message-api --> filebeat-apps --> app-logs --> logstash --> app-logs-YYYY.MM.dd
+  #   App logs:       producer, consumer (x2), message-api, audit-verifier --> filebeat-apps --> app-logs --> logstash --> app-logs-YYYY.MM.dd
   #   Infra logs:     kafka-1, kafka-init, kafka-ui --> filebeat --> infra-logs-YYYY.MM.dd (no Kafka)
 #   ELK logs:       elasticsearch, logstash, kibana, kibana-setup --> filebeat --> elk-logs-YYYY.MM.dd
 # Kibana data views: App logs (microservices), Infra logs, All logs (everything but the microservices), Kafka messages
@@ -289,9 +395,23 @@ services:
     networks:
       - data-layer
 
-  # Kafka -> Elasticsearch, two pipelines (logstash/pipelines.yml), each its own consumer group:
+  # A fresh Docker volume belongs to root. The archive goes to Logstash's user (uid 1000), which writes
+  # the files 0640: readable by its group, which the audit-verifier joins (group_add). The anchors go
+  # to the verifier's user (uid 999), and only it can write or read them.
+  audit-archive-init:
+    image: busybox:1.37.0
+    container_name: audit-archive-init
+    command: ["sh", "-c", "chown 1000:1000 /audit-archive && chmod 750 /audit-archive && chown 999:999 /audit-anchors && chmod 700 /audit-anchors"]
+    volumes:
+      - audit-archive:/audit-archive
+      - audit-anchors:/audit-anchors
+    restart: "no"
+    network_mode: none
+
+  # Kafka -> Elasticsearch, three pipelines (logstash/pipelines.yml), each its own consumer group:
   #   kafka-messages (group logstash):          app-events, app-log-messages, app-metrics
   #   app-logs       (group logstash-app-logs): app-logs
+  #   audit          (group logstash-audit):    audit-events --> /audit-archive/audit-YYYY-MM-DD.jsonl + audit-YYYY.MM
   logstash:
     image: logstash:9.5.3
     container_name: logstash
@@ -301,10 +421,15 @@ services:
     volumes:
       - ./logstash/pipelines.yml:/usr/share/logstash/config/pipelines.yml:ro
       - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - audit-archive:/audit-archive           # append-only audit archive (the record of truth)
     depends_on:
       elasticsearch:
         condition: service_healthy
+      audit-archive-init:
+        condition: service_completed_successfully
       kafka-init:
+        condition: service_completed_successfully
+      kibana-setup:       # the audit index template and retention policy must exist before audit-* is created
         condition: service_completed_successfully
     networks:
       - data-layer        # to reach Elasticsearch
@@ -354,10 +479,12 @@ services:
   kafka-exporter:
     image: danielqsj/kafka-exporter:v1.8.0
     container_name: kafka-exporter
-    command: ["--kafka.server=kafka-1:9092"]
+    command: ["--kafka.server=kafka-1:9092", "--kafka.server=kafka-2:9092"]
     restart: on-failure
     depends_on:
       kafka-1:
+        condition: service_healthy
+      kafka-2:
         condition: service_healthy
     networks:
       - service-layer
@@ -471,9 +598,13 @@ volumes:
   jmx-agent:
   prometheus-data:
   kafka-1-data:
+  kafka-2-data:
+  kafka-controller-data:
   es-data:
   filebeat-data:
   filebeat-apps-data:
+  audit-archive:
+  audit-anchors:
 
 networks:
   data-layer:

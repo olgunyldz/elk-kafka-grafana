@@ -1,2 +1,3 @@
 io.github.olgunyldz.logmasking.pci.kafka.PciKafkaAutoConfiguration
 io.github.olgunyldz.logmasking.logging.tracing.ObservationMaskingAutoConfiguration
+io.github.olgunyldz.logmasking.audit.AuditAutoConfiguration

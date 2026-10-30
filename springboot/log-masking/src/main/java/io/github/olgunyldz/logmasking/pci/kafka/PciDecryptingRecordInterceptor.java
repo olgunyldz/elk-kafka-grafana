@@ -1,5 +1,7 @@
 package io.github.olgunyldz.logmasking.pci.kafka;
 
+import io.github.olgunyldz.logmasking.audit.AuditEvent.Actor;
+import io.github.olgunyldz.logmasking.audit.AuditLogger;
 import io.github.olgunyldz.logmasking.logging.PciLogger;
 import io.github.olgunyldz.logmasking.pci.SensitiveDataEncryption;
 import org.apache.kafka.clients.consumer.Consumer;
@@ -28,11 +30,23 @@ public class PciDecryptingRecordInterceptor implements RecordInterceptor<Object,
     private final SensitiveDataEncryption encryption;
     private final JsonMapper jsonMapper;
     private final Set<String> consumerGroups;
+    /** Null when audit logging is off */
+    private final AuditLogger audit;
 
     public PciDecryptingRecordInterceptor(SensitiveDataEncryption encryption, JsonMapper jsonMapper, List<String> consumerGroups) {
+        this(encryption, jsonMapper, consumerGroups, null);
+    }
+
+    /**
+     * @param audit when set, every decryption is audited (SENSITIVE_DATA_DECRYPTED: access to card data,
+     *              PCI DSS 10.2.1.1), and a record whose decryption can't be audited stays encrypted
+     */
+    public PciDecryptingRecordInterceptor(SensitiveDataEncryption encryption, JsonMapper jsonMapper,
+                                          List<String> consumerGroups, AuditLogger audit) {
         this.encryption = encryption;
         this.jsonMapper = jsonMapper;
         this.consumerGroups = Set.copyOf(consumerGroups);
+        this.audit = audit;
     }
 
     @Override
@@ -48,6 +62,21 @@ public class PciDecryptingRecordInterceptor implements RecordInterceptor<Object,
         try {
             JsonNode decrypted = decrypt(jsonMapper.valueToTree(value));
             Object decryptedValue = jsonMapper.treeToValue(decrypted, value.getClass());
+            if (audit != null) {
+                try {
+                    String group = consumer.groupMetadata().groupId();
+                    audit.log(AuditLogger.event(AuditLogger.SYSTEM, "SENSITIVE_DATA_DECRYPTED")
+                            .actor(Actor.system(group))
+                            .channel("system")
+                            .resource("kafka-record", record.topic() + "/" + record.partition() + "/" + record.offset())
+                            .detail("consumerGroup", group));
+                } catch (RuntimeException e) {
+                    // No audit record, no access: the listener gets the record still encrypted
+                    log.error("Decryption of {} partition {} offset {} could not be audited, record stays encrypted: {}",
+                            record.topic(), record.partition(), record.offset(), e.getMessage());
+                    return record;
+                }
+            }
             return new ConsumerRecord<>(record.topic(), record.partition(), record.offset(),
                     record.timestamp(), record.timestampType(),
                     record.serializedKeySize(), record.serializedValueSize(),

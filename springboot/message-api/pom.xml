@@ -15,10 +15,15 @@
     <description>REST API the consumer calls for every record it handles: logs the message and acknowledges it</description>
 
     <dependencies>
-        <!-- Log masking (PciLogger, MaskingAppender) and span masking; no Kafka here, so no PCI Kafka beans -->
+        <!-- Log masking (PciLogger, MaskingAppender), span masking and the audit logger -->
         <dependency>
             <groupId>io.github.olgunyldz</groupId>
             <artifactId>log-masking</artifactId>
+        </dependency>
+        <!-- Kafka client for the audit log (audit-events); no listeners, no KafkaTemplate of its own -->
+        <dependency>
+            <groupId>org.springframework.kafka</groupId>
+            <artifactId>spring-kafka</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

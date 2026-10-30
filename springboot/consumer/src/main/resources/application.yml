@@ -13,8 +13,8 @@ spring:
     listener:
       # Observation: a span per record, continuing the producer's trace from the traceparent header
       observation-enabled: true
-    # Host-side listener of the broker. Inside Docker: kafka-1:9092
-    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092}
+    # Host-side listeners of the brokers. Inside Docker: kafka-1:9092,kafka-2:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092,localhost:29092}
     consumer:
       # A new group starts from the oldest record still in the topic
       auto-offset-reset: earliest
@@ -45,6 +45,15 @@ pci:
     # Only these consumer groups get plaintext (* = every group). Other readers of the topics
     # (kafka-ui, Logstash later) see tokens such as pan:v1:1111:...
     consumer-groups: log-consumer,event-consumer,metric-consumer
+
+audit:
+  # Regulatory audit log (separate from the application logs): hash-chained records to the audit-events topic
+  enabled: true
+  # HMAC key for the hash chain: its own secret, not the data encryption key. The default is the PUBLIC lab
+  # key: real environments must set AUDIT_HMAC_KEY (from a KMS / Vault).
+  hmac-key: ${AUDIT_HMAC_KEY:Vb8x2lXQ7Hn3yQm1q0bC9kRzT5uW4eA6sD2fG8hJ1kM=}
+  key-id: audit-v1
+  heartbeat-interval: 60s
 
 management:
   endpoints:

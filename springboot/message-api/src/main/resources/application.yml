@@ -4,6 +4,20 @@ server:
 spring:
   application:
     name: message-api
+  kafka:
+    # Only for the audit log (audit-events). Inside Docker: kafka-1:9092,kafka-2:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:19092,localhost:29092}
+
+pci:
+  # Needed by the library's checks; message-api decrypts nothing. PUBLIC lab key by default.
+  data-encryption-key: ${DATA_ENCRYPTION_KEY:+WpfE866Ysy6Lp51Q61eBAcupVyUtI5nnyxwm6avujc=}
+
+audit:
+  # Employee and back-office actions are audited (see EmployeeController)
+  enabled: true
+  hmac-key: ${AUDIT_HMAC_KEY:Vb8x2lXQ7Hn3yQm1q0bC9kRzT5uW4eA6sD2fG8hJ1kM=}
+  key-id: audit-v1
+  heartbeat-interval: 60s
 
 management:
   endpoints:

@@ -91,6 +91,28 @@ class PciDecryptingRecordInterceptorTest {
     }
 
     @Test
+    void auditsEveryDecryption() {
+        var audit = mock(io.github.olgunyldz.logmasking.audit.AuditLogger.class);
+        var audited = new PciDecryptingRecordInterceptor(encryption, new JsonMapper(), List.of("log-consumer"), audit);
+
+        var result = audited.intercept(record(encryptedLine(encryption), true), consumerInGroup("log-consumer"));
+
+        assertThat(((LogLine) result.value()).message()).isEqualTo("Declined card 4111111111111111");
+        org.mockito.Mockito.verify(audit).log(org.mockito.ArgumentMatchers.argThat(b -> "SENSITIVE_DATA_DECRYPTED".equals(b.action())));
+    }
+
+    @Test
+    void staysEncryptedWhenTheDecryptionCannotBeAudited() {
+        var audit = mock(io.github.olgunyldz.logmasking.audit.AuditLogger.class);
+        when(audit.log(org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new io.github.olgunyldz.logmasking.audit.AuditWriteException("NOT_ENOUGH_REPLICAS"));
+        var audited = new PciDecryptingRecordInterceptor(encryption, new JsonMapper(), List.of("log-consumer"), audit);
+        var original = record(encryptedLine(encryption), true);
+
+        assertThat(audited.intercept(original, consumerInGroup("log-consumer"))).isSameAs(original);
+    }
+
+    @Test
     void passesNullValuesThrough() {
         // ErrorHandlingDeserializer turns unreadable records into null values
         var original = record(null, true);

@@ -43,6 +43,12 @@
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
         </dependency>
+        <!-- Optional: only for the audit metrics (audit_records_total) -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+            <optional>true</optional>
+        </dependency>
         <!-- Optional: only for MaskingObservationFilter, which masks span attributes (tracing) -->
         <dependency>
             <groupId>io.micrometer</groupId>
